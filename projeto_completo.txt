@@ -1,0 +1,65 @@
+PROJETO: MINAS FARMA CANAÃ - SISTEMA DE GESTÃO DE CAIXA
+======================================================
+
+> OBJETIVO
+Sistema web para controle de fluxo de caixa, sangrias, pagamentos via Pix e fechamento de caixa diário dos operadores, com aprovação gerencial.
+
+> TECNOLOGIAS (STACK)
+--------------------
+[FRONTEND]
+- Linguagem: TypeScript
+- Framework: React (Vite)
+- Estilização: Tailwind CSS
+- Ícones: Lucide React
+- Comunicação: Axios
+- Produção: Nginx (Servidor Web & Proxy Reverso)
+
+[BACKEND]
+- Linguagem: Python 3.12+
+- Framework: FastAPI
+- Servidor Web (Prod): Gunicorn (Gerenciador de Processos) + Uvicorn (Worker)
+- Autenticação: JWT (OAuth2)
+- Validação: Pydantic
+
+[BANCO DE DADOS]
+- Banco: PostgreSQL
+- ORM: SQLAlchemy
+- Migrações: Alembic (Recomendado para futuro)
+
+> ESTRUTURA DE DEPLOY (PRODUÇÃO COM DOCKER)
+-------------------------------------------
+A arquitetura de produção utiliza 3 containers orquestrados via Docker Compose:
+
+1. [Container Frontend (Nginx)]
+   - Responsável por servir os arquivos estáticos do React (HTML, CSS, JS otimizados).
+   - Atua como "Porteiro" (Reverse Proxy):
+     - Requisições para "/" -> Entrega o site.
+     - Requisições para "/api" -> Redireciona para o Container Backend.
+   - Muito mais leve e seguro que rodar Node.js em produção.
+
+2. [Container Backend (Python API)]
+   - Roda a aplicação FastAPI.
+   - Usa Gunicorn para gerenciar múltiplos processos (workers), garantindo estabilidade sob carga.
+   - Não expõe porta diretamente para a internet, apenas para o Nginx (rede interna).
+
+3. [Container Database (PostgreSQL)]
+   - Armazena os dados.
+   - Volume persistente (`pgdata`) configurado para garantir que os dados NÃO sejam perdidos se o container reiniciar.
+
+> COMO RODAR EM PRODUÇÃO
+------------------------
+1. Copie os arquivos do projeto para o servidor (VPS).
+2. Configure o arquivo `.env` com senhas fortes de produção.
+3. Execute o comando:
+   $ docker compose -f docker-compose.prod.yml up -d --build
+
+> FUNCIONALIDADES PRINCIPAIS
+---------------------------
+1. [Login]: Acesso seguro para Operadores e Gestores (Admin).
+2. [Sangrias]: Registro de retiradas do caixa durante o dia.
+3. [Pix]: Controle de entradas Pix, com status (Pendente/Conciliado).
+4. [Fechamento]:
+   - O operador lança quanto contou de dinheiro/cartão.
+   - O sistema compara com o calculado (baseado nas vendas/sangrias).
+   - Calcula a "Quebra de Caixa" (Sobra ou Falta).
+   - Relatórios em PDF para conferência.
