@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-// Ler URL da API do .env (Vite usa import.meta.env)
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Em produção, usamos URLs relativas (Nginx faz proxy reverso para /api/* e /token)
+// Em desenvolvimento, usa http://localhost:8000
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -42,6 +43,16 @@ export const createSangria = async (data: { valor: number; motivo: string }) => 
     return response.data;
 };
 
+export const updateSangriaStatus = async (id: number, status: string) => {
+    const response = await api.put(`/api/sangrias/${id}/status`, { status });
+    return response.data;
+};
+
+export const deleteSangria = async (id: number) => {
+    const response = await api.delete(`/api/sangrias/${id}`);
+    return response.data;
+};
+
 // --- PIX API ---
 export const getPixEntries = async () => {
     const response = await api.get('/api/pix/');
@@ -58,15 +69,128 @@ export const updatePixStatus = async (id: number, status: string) => {
     return response.data;
 };
 
+export const deletePix = async (id: number) => {
+    const response = await api.delete(`/api/pix/${id}`);
+    return response.data;
+};
+
+// --- DASHBOARD API ---
+export const getDashboardStats = async (data?: string) => {
+    const params = data ? `?data=${data}` : '';
+    const response = await api.get(`/api/dashboard/stats${params}`);
+    return response.data;
+};
+
 // --- CLOSING API ---
-export const getClosings = async () => {
-    const response = await api.get('/api/closings/');
+export const getClosings = async (status?: string) => {
+    const params = status ? `?status=${status}` : '';
+    const response = await api.get(`/api/closings/${params}`);
+    return response.data;
+};
+
+export const getClosing = async (id: number) => {
+    const response = await api.get(`/api/closings/${id}`);
     return response.data;
 };
 
 export const createClosing = async (data: any) => {
     const response = await api.post('/api/closings/', data);
     return response.data;
+};
+
+// Upload PDFs e extração de dados
+export const uploadClosingPDFs = async (caixaPdf: File, diferencaPdf: File) => {
+    const formData = new FormData();
+    formData.append('caixa_pdf', caixaPdf);
+    formData.append('diferenca_pdf', diferencaPdf);
+
+    const response = await api.post('/api/closings/upload-pdfs', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return response.data;
+};
+
+// Criar fechamento a partir dos dados extraídos dos PDFs
+export const createClosingFromPDFs = async (data: {
+    data_referencia: string;
+    operador_nome: string;
+    caixa: string;
+    movimentos: any[];
+    conferencia: any[];
+    total_quebra: number;
+}) => {
+    const response = await api.post('/api/closings/create-from-pdfs', data);
+    return response.data;
+};
+
+// Admin aprova fechamento
+export const approveClosing = async (id: number, data?: {
+    conferencias?: any[];
+    observacao_gerente?: string;
+}) => {
+    const response = await api.put(`/api/closings/${id}/approve`, data || {});
+    return response.data;
+};
+
+// Admin rejeita fechamento
+export const rejectClosing = async (id: number, motivo: string) => {
+    const response = await api.put(`/api/closings/${id}/reject`, { motivo });
+    return response.data;
+};
+
+// Admin desaprova fechamento (volta para Pendente)
+export const unapproveClosing = async (id: number) => {
+    const response = await api.put(`/api/closings/${id}/unapprove`);
+    return response.data;
+};
+
+// Admin exclui fechamento
+export const deleteClosing = async (id: number) => {
+    const response = await api.delete(`/api/closings/${id}`);
+    return response.data;
+};
+
+// --- USER API ---
+export const getUsers = async () => {
+    const response = await api.get('/api/users/');
+    return response.data;
+};
+
+export const getUser = async (id: number) => {
+    const response = await api.get(`/api/users/${id}`);
+    return response.data;
+};
+
+export const createUser = async (data: { login: string; nome: string; cargo: string; senha: string }) => {
+    const response = await api.post('/api/users/', data);
+    return response.data;
+};
+
+export const updateUser = async (id: number, data: { login?: string; nome?: string; cargo?: string; active?: boolean }) => {
+    const response = await api.put(`/api/users/${id}`, data);
+    return response.data;
+};
+
+export const deleteUser = async (id: number) => {
+    const response = await api.delete(`/api/users/${id}`);
+    return response.data;
+};
+
+export const updatePassword = async (id: number, data: { senha_atual: string; nova_senha: string }) => {
+    const response = await api.put(`/api/users/${id}/password`, data);
+    return response.data;
+};
+
+export const reactivateUser = async (id: number) => {
+    const response = await api.post(`/api/users/${id}/reactivate`);
+    return response.data;
+};
+
+// --- LOGOUT ---
+export const logout = () => {
+    localStorage.removeItem('token');
 };
 
 export default api;

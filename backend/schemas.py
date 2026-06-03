@@ -11,6 +11,19 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     senha: str
 
+class UserUpdate(BaseModel):
+    """Schema para atualização de usuário (campos opcionais)"""
+    login: Optional[str] = None
+    nome: Optional[str] = None
+    cargo: Optional[str] = None
+    active: Optional[bool] = None
+    senha: Optional[str] = None  # Permite que o admin altere a senha
+
+class UserPasswordUpdate(BaseModel):
+    """Schema para alteração de senha"""
+    senha_atual: str
+    nova_senha: str
+
 class UserResponse(UserBase):
     id: int
     active: bool
@@ -32,13 +45,20 @@ class SangriaBase(BaseModel):
     motivo: str
 
 class SangriaCreate(SangriaBase):
+    origem: Optional[str] = "Manual"
     pass # Operador é pego do usuário logado
+
+class SangriaUpdateStatus(BaseModel):
+    status: str
 
 class SangriaResponse(SangriaBase):
     id: int
     created_at: datetime
     operador_id: int
     operador_nome: Optional[str] = None # Para facilitar listagem
+    status: str
+    origem: str
+    closing_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -69,6 +89,7 @@ class ClosingMovementBase(BaseModel):
     valor: float
     historico: str
     moeda: str = "BRL"
+    descricao: Optional[str] = None  # Descrição/identificação do operador
 
 class ClosingConferenceBase(BaseModel):
     forma_pagamento: str
@@ -90,6 +111,7 @@ class ClosingCreate(BaseModel):
 class ClosingResponse(BaseModel):
     id: int
     operador_id: int
+    operador_nome: Optional[str] = None
     created_at: datetime
     data_referencia: datetime
     status: str

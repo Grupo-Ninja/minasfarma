@@ -1,18 +1,4 @@
 services:
-  # --- Banco de Dados ---
-  db:
-    image: postgres:15
-    container_name: farma_canaa_db_prod
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - pgdata_prod:/var/lib/postgresql/data
-    networks:
-      - farma_net
-
   # --- Backend (API Gunicorn) ---
   backend:
     build:
@@ -20,12 +6,12 @@ services:
       dockerfile: Dockerfile.prod
     container_name: farma_canaa_backend_prod
     restart: always
+    ports:
+      - "6005:8000" # Backend exposto na porta 6005
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB}
+      DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-    depends_on:
-      - db
     networks:
       - farma_net
 
@@ -37,15 +23,11 @@ services:
     container_name: farma_canaa_frontend_prod
     restart: always
     ports:
-      - "80:80"        # HTTP
-      # - "443:443"    # HTTPS (Requer certificados SSL montados em volume)
+      - "3007:80" # Frontend exposto na porta 3007
     depends_on:
       - backend
     networks:
       - farma_net
-
-volumes:
-  pgdata_prod:
 
 networks:
   farma_net:

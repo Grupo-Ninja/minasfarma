@@ -33,6 +33,14 @@ class User(Base):
     sangrias = relationship("Sangria", back_populates="operador_rel")
     fechamentos = relationship("Closing", back_populates="operador_rel")
 
+class SangriaStatus(str, enum.Enum):
+    PENDENTE = "Pendente"
+    CONCILIADO = "Conciliado"
+
+class SangriaOrigem(str, enum.Enum):
+    MANUAL = "Manual"
+    FECHAMENTO = "Fechamento"
+
 class Sangria(Base):
     __tablename__ = "sangrias"
 
@@ -41,8 +49,12 @@ class Sangria(Base):
     motivo = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     operador_id = Column(Integer, ForeignKey("users.id"))
+    status = Column(String, default=SangriaStatus.PENDENTE)
+    origem = Column(String, default=SangriaOrigem.MANUAL)
+    closing_id = Column(Integer, ForeignKey("closings.id", ondelete="CASCADE"), nullable=True)
 
     operador_rel = relationship("User", back_populates="sangrias")
+    closing_rel = relationship("Closing", back_populates="sangrias")
 
 class PixEntry(Base):
     __tablename__ = "pix_entries"
@@ -73,6 +85,11 @@ class Closing(Base):
     operador_rel = relationship("User", back_populates="fechamentos")
     movimentos = relationship("ClosingMovement", back_populates="closing", cascade="all, delete-orphan")
     conferencias = relationship("ClosingConference", back_populates="closing", cascade="all, delete-orphan")
+    sangrias = relationship("Sangria", back_populates="closing_rel", cascade="all, delete-orphan")
+
+    @property
+    def operador_nome(self):
+        return self.operador_rel.nome if self.operador_rel else None
 
 class ClosingMovement(Base):
     __tablename__ = "closing_movements"
@@ -83,6 +100,7 @@ class ClosingMovement(Base):
     valor = Column(Float, nullable=False)
     historico = Column(String, nullable=False)
     moeda = Column(String, default="BRL")
+    descricao = Column(String, nullable=True)  # Descrição/identificação do operador
     
     closing = relationship("Closing", back_populates="movimentos")
 

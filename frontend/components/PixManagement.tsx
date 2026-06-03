@@ -2,9 +2,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Trash2, Calendar, DollarSign, CheckSquare, Square, Filter, CheckCircle, X } from 'lucide-react';
 import { PixEntry } from '../types';
-import { getPixEntries, createPix, updatePixStatus } from '../api';
+import { getPixEntries, createPix, updatePixStatus, deletePix } from '../api';
 
-const PixManagement: React.FC = () => {
+interface PixManagementProps {
+  isAdmin?: boolean;
+}
+
+const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
   const [filterDate, setFilterDate] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -63,11 +67,16 @@ const PixManagement: React.FC = () => {
     }
   };
 
-  const handleDelete = (id: string) => {
-    setEntries(entries.filter(e => e.id !== id));
-    const newSelected = new Set(selectedIds);
-    newSelected.delete(id);
-    setSelectedIds(newSelected);
+  const handleDelete = async (id: string) => {
+    try {
+      await deletePix(parseInt(id));
+      await fetchEntries();
+      const newSelected = new Set(selectedIds);
+      newSelected.delete(id);
+      setSelectedIds(newSelected);
+    } catch (err) {
+      alert("Erro ao excluir Pix");
+    }
   };
 
   // Bulk Selection Logic
@@ -89,11 +98,9 @@ const PixManagement: React.FC = () => {
     setSelectedIds(newSelected);
   };
 
-  const handleBulkAction = async (action: 'CONCILIAR' | 'EXCLUIR') => {
+  const handleBulkAction = async (action: 'CONCILIAR' | 'DESCONCILIAR' | 'EXCLUIR') => {
     if (action === 'CONCILIAR') {
       try {
-        // Process sequentially or Promise.all
-        // Assuming API has no bulk endpoint yet, loop through
         for (const id of selectedIds) {
           await updatePixStatus(parseInt(id), 'Conciliado');
         }
@@ -102,14 +109,26 @@ const PixManagement: React.FC = () => {
       } catch (err) {
         alert("Erro ao conciliar itens");
       }
+    } else if (action === 'DESCONCILIAR') {
+      try {
+        for (const id of selectedIds) {
+          await updatePixStatus(parseInt(id), 'Pendente');
+        }
+        await fetchEntries();
+        setSelectedIds(new Set());
+      } catch (err) {
+        alert("Erro ao desconciliar itens");
+      }
     } else if (action === 'EXCLUIR') {
-      // Backend didn't implement Delete yet in Router/CRUD shared, but let's assume we might add it or just UI only?
-      // User request said "verificar o que admin tem acesso". 
-      // I only implemented create/list/update_status. Delete is missing in backend.
-      // I'll skip deleting for now or just remove from UI locally to prevent crash, 
-      // but ideally I should implement delete in backend.
-      // Let's just alert "Not implemented" for now or remove local logic to avoid confusion.
-      alert("Exclusão ainda não implementada no Backend.");
+      try {
+        for (const id of selectedIds) {
+          await deletePix(parseInt(id));
+        }
+        await fetchEntries();
+        setSelectedIds(new Set());
+      } catch (err) {
+        alert("Erro ao excluir itens");
+      }
     }
   };
 
@@ -213,8 +232,8 @@ const PixManagement: React.FC = () => {
         {/* List Column */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Bulk Action Bar - Only Visible when items are selected */}
-          {selectedIds.size > 0 && (
+          {/* Bulk Action Bar - Only Visible when items are selected AND user is admin */}
+          {isAdmin && selectedIds.size > 0 && (
             <div className="bg-[#0A1E35] text-white px-4 py-3 rounded-lg flex items-center justify-between shadow-lg animate-fade-in border-b-4 border-[#D4C4A8]">
               <span className="font-bold text-sm pl-2">{selectedIds.size} selecionado(s)</span>
               <div className="flex gap-2">
@@ -223,6 +242,12 @@ const PixManagement: React.FC = () => {
                   className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 rounded transition-colors"
                 >
                   Excluir
+                </button>
+                <button
+                  onClick={() => handleBulkAction('DESCONCILIAR')}
+                  className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 rounded transition-colors"
+                >
+                  Desconciliar
                 </button>
                 <button
                   onClick={() => handleBulkAction('CONCILIAR')}
@@ -258,17 +283,19 @@ const PixManagement: React.FC = () => {
                           </div>
                         </div>
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold border ${entry.status === 'Conciliado'
-                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
                           }`}>
                           {entry.status}
                         </span>
                       </div>
                       <div className="pl-8 flex justify-between items-center">
                         <p className="text-sm text-slate-700">{entry.observacao}</p>
-                        <button onClick={() => handleDelete(entry.id)} className="text-slate-400 hover:text-rose-600">
-                          <Trash2 size={16} />
-                        </button>
+                        {isAdmin && (
+                          <button onClick={() => handleDelete(entry.id)} className="text-slate-400 hover:text-rose-600">
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -338,23 +365,25 @@ const PixManagement: React.FC = () => {
                           </td>
                           <td className="px-4 py-4 text-center">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${entry.status === 'Conciliado'
-                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                                : entry.status === 'Rejeitado'
-                                  ? 'bg-rose-100 text-rose-700 border-rose-200'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200'
+                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                              : entry.status === 'Rejeitado'
+                                ? 'bg-rose-100 text-rose-700 border-rose-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
                               }`}>
                               {entry.status === 'Conciliado' && <CheckCircle size={10} className="mr-1" />}
                               {entry.status}
                             </span>
                           </td>
                           <td className="px-4 py-4 whitespace-nowrap text-right">
-                            <button
-                              onClick={() => handleDelete(entry.id)}
-                              className="text-slate-400 hover:text-rose-600 p-2 hover:bg-rose-50 rounded-full transition-colors"
-                              title="Excluir"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleDelete(entry.id)}
+                                className="text-slate-400 hover:text-rose-600 p-2 hover:bg-rose-50 rounded-full transition-colors"
+                                title="Excluir"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

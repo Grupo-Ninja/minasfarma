@@ -20,46 +20,469 @@ Sistema web para controle de fluxo de caixa, sangrias, pagamentos via Pix e fech
 - Servidor Web (Prod): Gunicorn (Gerenciador de Processos) + Uvicorn (Worker)
 - Autenticação: JWT (OAuth2)
 - Validação: Pydantic
+- Extração de PDFs: pdfplumber
 
 [BANCO DE DADOS]
 - Banco: PostgreSQL
 - ORM: SQLAlchemy
 - Migrações: Alembic (Recomendado para futuro)
 
-> ESTRUTURA DE DEPLOY (PRODUÇÃO COM DOCKER)
--------------------------------------------
-A arquitetura de produção utiliza 3 containers orquestrados via Docker Compose:
+================================================================================
+                              ESTRUTURA DO BANCO DE DADOS
+================================================================================
 
-1. [Container Frontend (Nginx)]
-   - Responsável por servir os arquivos estáticos do React (HTML, CSS, JS otimizados).
-   - Atua como "Porteiro" (Reverse Proxy):
-     - Requisições para "/" -> Entrega o site.
-     - Requisições para "/api" -> Redireciona para o Container Backend.
-   - Muito mais leve e seguro que rodar Node.js em produção.
+[TABELA: users]
+| Campo   | Tipo    | Descrição                              |
+|---------|---------|----------------------------------------|
+| id      | Integer | Chave primária, auto-incremento        |
+| nome    | String  | Nome completo do usuário               |
+| login   | String  | Login único para acesso (índice único) |
+| senha   | String  | Senha criptografada (bcrypt hash)      |
+| cargo   | String  | "admin" ou "operador"                  |
+| active  | Boolean | Se usuário está ativo (default: true)  |
 
-2. [Container Backend (Python API)]
-   - Roda a aplicação FastAPI.
-   - Usa Gunicorn para gerenciar múltiplos processos (workers), garantindo estabilidade sob carga.
-   - Não expõe porta diretamente para a internet, apenas para o Nginx (rede interna).
+[TABELA: sangrias]
+| campo       | Tipo     | Descrição                     |
+|-------------|----------|-------------------------------|
+| id          | Integer  | Chave primária                |
+| valor       | Float    | Valor da sangria              |
+| motivo      | String   | Motivo da retirada            |
+| created_at  | DateTime | Data/hora do registro         |
+| operador_id | FK->users| Quem realizou a sangria       |
+| closing_id  | FK->closings | Fechamento de origem (opcional) |
+| origem      | String   | Manual / Fechamento           |
+| status      | String   | Pendente / Conciliado         |
 
-3. [Container Database (PostgreSQL)]
-   - Armazena os dados.
-   - Volume persistente (`pgdata`) configurado para garantir que os dados NÃO sejam perdidos se o container reiniciar.
+[TABELA: pix_entries]
+| Campo          | Tipo     | Descrição                          |
+|----------------|----------|------------------------------------|
+| id             | Integer  | Chave primária                     |
+| valor          | Float    | Valor do PIX                       |
+| observacao     | String   | Observação opcional                |
+| data_transacao | DateTime | Data da transação                  |
+| created_at     | DateTime | Data do registro                   |
+| status         | String   | Pendente / Conciliado / Rejeitado  |
 
-> COMO RODAR EM PRODUÇÃO
+[TABELA: closings] (Fechamentos de Caixa)
+| Campo              | Tipo     | Descrição                              |
+|--------------------|----------|----------------------------------------|
+| id                 | Integer  | Chave primária                         |
+| operador_id        | FK->users| Operador que criou o fechamento        |
+| created_at         | DateTime | Data/hora de criação                   |
+| data_referencia    | DateTime | Data do fechamento (ex: 24/11/2025)    |
+| status             | String   | Pendente / Aprovado / Rejeitado        |
+| total_entradas     | Float    | Soma de todas as entradas              |
+| total_saidas       | Float    | Soma de todas as saídas                |
+| total_quebra       | Float    | Diferença total (Sobra/Falta)          |
+| observacao_gerente | Text     | Comentário do admin ao aprovar/rejeitar|
+
+[TABELA: closing_movements] (Movimentações do Fechamento)
+| Campo      | Tipo     | Descrição                              |
+|------------|----------|----------------------------------------|
+| id         | Integer  | Chave primária                         |
+| closing_id | FK->closings | Fechamento pai                     |
+| tipo       | String   | Entrada / Saída                        |
+| valor      | Float    | Valor do movimento                     |
+| historico  | String   | SANGRIA, RECARGA, PIX CELULAR, etc     |
+| moeda      | String   | DINHEIRO, CHEQUE A VISTA, etc          |
+
+[TABELA: closing_conferences] (Conferência por Forma de Pagamento)
+| Campo           | Tipo     | Descrição                              |
+|-----------------|----------|----------------------------------------|
+| id              | Integer  | Chave primária                         |
+| closing_id      | FK->closings | Fechamento pai                     |
+| forma_pagamento | String   | DINHEIRO, CARTAO, PIX, etc             |
+| valor_informado | Float    | Valor do sistema da farmácia (PDF)     |
+| valor_calculado | Float    | Valor calculado pelo sistema           |
+| valor_oficial   | Float    | Valor confirmado (editável pelo admin) |
+| diferenca       | Float    | Oficial - Calculado                    |
+| justificativa   | String   | Justificativa do operador              |
+
+================================================================================
+                              API ENDPOINTS
+================================================================================
+
+> AUTENTICAÇÃO
+--------------
+POST   /token                      - Login (retorna JWT)
+GET    /api/users/me               - Dados do usuário logado
+
+> USUÁRIOS (Admin apenas)
+-------------------------
+GET    /api/users/                 - Listar usuários
+GET    /api/users/{id}             - Obter usuário por ID
+POST   /api/users/                 - Criar usuário
+PUT    /api/users/{id}             - Atualizar usuário
+DELETE /api/users/{id}             - Desativar usuário (soft delete)
+PUT    /api/users/{id}/password    - Alterar senha
+POST   /api/users/{id}/reactivate  - Reativar usuário
+
+> SANGRIAS
+----------
+GET    /api/sangrias/              - Listar sangrias
+GET    /api/sangrias/{id}          - Obter sangria por ID
+POST   /api/sangrias/              - Criar sangria
+
+> PIX
+-----
+GET    /api/pix/                   - Listar entradas PIX
+POST   /api/pix/                   - Criar entrada PIX
+PUT    /api/pix/{id}/status        - Atualizar status do PIX
+DELETE /api/pix/{id}               - Excluir entrada PIX
+
+> DASHBOARD
+-----------
+GET    /api/dashboard/stats        - Estatísticas do dashboard
+
+> FECHAMENTOS (Closings)
 ------------------------
-1. Copie os arquivos do projeto para o servidor (VPS).
-2. Configure o arquivo `.env` com senhas fortes de produção.
-3. Execute o comando:
-   $ docker compose -f docker-compose.prod.yml up -d --build
+GET    /api/closings/              - Listar fechamentos (filtro por status)
+GET    /api/closings/{id}          - Obter fechamento por ID
+POST   /api/closings/              - Criar fechamento (padrão)
+POST   /api/closings/upload-pdfs   - Upload de 2 PDFs e extração de dados
+POST   /api/closings/create-from-pdfs - Criar fechamento PENDENTE
+PUT    /api/closings/{id}/approve  - Aprovar fechamento (admin)
+PUT    /api/closings/{id}/reject   - Rejeitar fechamento (admin)
 
-> FUNCIONALIDADES PRINCIPAIS
----------------------------
-1. [Login]: Acesso seguro para Operadores e Gestores (Admin).
-2. [Sangrias]: Registro de retiradas do caixa durante o dia.
-3. [Pix]: Controle de entradas Pix, com status (Pendente/Conciliado).
-4. [Fechamento]:
-   - O operador lança quanto contou de dinheiro/cartão.
-   - O sistema compara com o calculado (baseado nas vendas/sangrias).
-   - Calcula a "Quebra de Caixa" (Sobra ou Falta).
-   - Relatórios em PDF para conferência.
+================================================================================
+                         MÓDULO DE FECHAMENTO DE CAIXA
+================================================================================
+
+> FLUXO DO OPERADOR
+-------------------
+1. Operador acessa "Fechamento de Caixa" -> Clica "Inserir Novo"
+2. Faz upload de 2 PDFs do sistema da farmácia:
+   - CAIXA xxx.pdf (Relatório geral do caixa)
+   - xxx DIFERENÇA.pdf (Relatório de conferência)
+3. Backend extrai automaticamente:
+   - Dados do operador (nome, caixa, datas)
+   - Movimentações (sangrias, entradas, saídas)
+   - Conferência por forma de pagamento (informado, calculado, diferença)
+4. Frontend exibe "Mesa de Conferência" com dados extraídos
+5. Operador:
+   - VISUALIZA valores (não pode editar)
+   - Preenche JUSTIFICATIVAS para diferenças > R$ 3,00
+   - Confirma envio -> Status = PENDENTE
+
+> FLUXO DO ADMIN (APROVAÇÃO)
+----------------------------
+1. Admin vê lista de fechamentos com filtro de status
+2. Fechamentos PENDENTES aparecem com botões Aprovar/Rejeitar
+3. Admin clica para ver detalhes COMPLETOS:
+   - Dados do operador (nome, caixa, data)
+   - Lista de movimentações (sangrias/entradas)
+   - Mesa de conferência com TODAS as colunas:
+     | Forma Pagto | Informado | Sistema | Oficial* | Diferença | Justificativa* |
+     * Campos editáveis pelo admin
+4. Ao aprovar:
+   - Admin pode EDITAR "Valor Oficial" para cada forma de pagamento
+   - Admin pode EDITAR justificativas se necessário
+   - Sistema recalcula diferenças automaticamente
+   - Status muda para APROVADO
+5. Ao rejeitar:
+   - Informa motivo obrigatório
+   - Status muda para REJEITADO
+
+> EXTRAÇÃO DOS PDFs (DADOS CONFERIDOS)
+--------------------------------------
+Os PDFs são processados pelo módulo `pdf_extractor.py`:
+
+[CAIXA xxx.pdf] - Dados extraídos:
+- operador: TAIS MONTEIRO GUIMARAES ✓
+- caixa: 180 ✓
+- data_abertura: 24/11/2025 07:19:01 ✓
+- data_fechamento: 24/11/2025 14:38:43 ✓
+- vendas_dinheiro: R$ 666,77 ✓
+- vendas_cartao: R$ 2.373,93 ✓
+- vendas_pix: R$ 1.161,77 ✓
+- movimentos: 
+  - SANGRIA (Saída): R$ 677,00 ✓
+  - GASOLINA (Saída): R$ 20,00 ✓
+  - PIX CELULAR (Entrada): R$ 26,99 ✓
+  - RECARGA (Entrada): R$ 30,00 ✓
+
+[xxx DIFERENÇA.pdf] - Dados extraídos:
+- DINHEIRO: Informado R$ 0,00, Calculado R$ -0,23, Diferença R$ 0,23 ✓
+- CHEQUE A VISTA: Informado R$ 26,99, Calculado R$ 26,99, Diferença R$ 0,00 ✓
+- CREDIÁRIO: Informado R$ 7,00, Calculado R$ 7,00, Diferença R$ 0,00 ✓
+- CARTÃO: Informado R$ 2.373,94, Calculado R$ 2.373,93, Diferença R$ 0,01 ✓
+- Total Quebra: R$ 0,24 ✓
+
+================================================================================
+                              ARQUIVOS DO PROJETO
+================================================================================
+
+> BACKEND (/backend)
+--------------------
+main.py              - Ponto de entrada FastAPI
+auth.py              - Autenticação JWT, login, get_current_user
+database.py          - Conexão SQLAlchemy
+models.py            - Modelos do banco (User, Sangria, Closing, etc)
+schemas.py           - Schemas Pydantic para validação
+crud.py              - Funções de acesso ao banco
+pdf_extractor.py     - Extração de dados dos PDFs (pdfplumber)
+
+routers/
+  users.py           - CRUD de usuários
+  sangrias.py        - Sangrias
+  pix.py             - Entradas PIX
+  closings.py        - Fechamentos (create, approve, reject)
+  pdf_upload.py      - Upload e processamento de PDFs
+
+> FRONTEND (/frontend)
+----------------------
+App.tsx              - Componente principal, rotas, autenticação
+api.ts               - Funções Axios para comunicação com backend
+
+components/
+  Login.tsx          - Tela de login
+  Sidebar.tsx        - Menu lateral, logout, info do usuário
+  Dashboard.tsx      - Dashboard principal
+  Operators.tsx      - Gestão de usuários (admin)
+  SangriaList.tsx    - Lista de sangrias
+  PixManagement.tsx  - Gestão de PIX
+  Conference.tsx     - Fechamento de caixa (upload PDFs, conferência)
+
+types.ts             - Interfaces TypeScript
+constants.ts         - Constantes e dados de seed
+
+================================================================================
+                    REGRAS DE NEGÓCIO IMPORTANTES
+================================================================================
+- Cálculo de Quebra: A "Quebra Total" é a SOMA DAS DIFERENÇAS ABSOLUTAS.
+  - Exemplo: -60 + -10 + 30 = |-60| + |-10| + |30| = 100.
+  - Representa o "Grau de Divergência Total".
+
+================================================================================
+                    HISTÓRICO DE IMPLEMENTAÇÕES (PRODUÇÃO)
+================================================================================
+
+2025-12-30: Implementação de Novas Funcionalidades de Gestão (Pix, Sangrias, Fechamentos)
+- Backend:
+  - Pix: Adicionada lógica para desconciliar (voltar para 'Pendente') e exclusão restrita a admins.
+  - Sangrias: Adicionado campo 'status' (Pendente/Conciliado) e 'origem' (Manual/Fechamento).
+  - Sangrias: Implementada lógica de exclusão condicional (proibido excluir sangrias de 'Fechamento').
+  - Fechamentos: Criados endpoints para Desaprovar (voltar para 'Pendente') e Excluir permanentemente.
+  - Fechamentos: Ajustada criação automática de sangrias para ter origem 'Fechamento'.
+- Frontend:
+  - PixManagement: Adicionado botão 'Desconciliar' e melhorada gestão em lote.
+  - SangriaList: Adicionadas colunas de Status e Origem, ações de Conciliar/Desconciliar e Exclusão (com trava para origem Fechamento).
+  - Conference: Adicionados botões 'Desaprovar' e 'Excluir' para administradores.
+  - API e Types: Atualizados para suportar os novos campos e endpoints.
+
+
+> FASE 1: Deploy Inicial
+------------------------
+1. Configuração Docker Compose para produção
+2. Build do frontend com Vite
+3. Configuração do Nginx como reverse proxy
+4. Deploy do backend com Gunicorn/Uvicorn
+5. Configuração SSL com Let's Encrypt
+6. Conexão com PostgreSQL externo
+
+> FASE 2: Módulo de Autenticação
+--------------------------------
+1. Login com JWT (POST /token)
+2. Verificação de token em todas as rotas protegidas
+3. Endpoint GET /api/users/me para dados do usuário logado
+4. Verificação de usuário ativo no login
+5. Token com expiração de 24h
+6. Logout funcional no frontend (limpa localStorage)
+
+> FASE 3: Gestão de Usuários
+----------------------------
+1. CRUD completo de usuários (admin only)
+2. Soft delete (desativação de usuários)
+3. Reativação de usuários desativados
+4. Alteração de senha (próprio usuário ou admin)
+5. Integração frontend (Operators.tsx) com API real
+6. Remoção de dados mockados do frontend
+
+> FASE 4: Módulo de Fechamento de Caixa (Atual)
+-----------------------------------------------
+1. Upload de 2 PDFs via endpoint /api/closings/upload-pdfs
+2. Extração automática de dados com pdfplumber
+3. Movimentações: sangrias, entradas, saídas
+4. Conferência por forma de pagamento
+5. Criação de fechamento PENDENTE pelo operador
+6. Aprovação/Rejeição pelo admin
+7. Admin pode editar "Valor Oficial" antes de aprovar
+8. Recálculo automático de diferenças
+9. Filtros por status, data, operador na listagem
+
+> FASE 5: Dashboard e Melhorias (25/12/2025)
+--------------------------------------------
+1. DELETE /api/pix/{id} - Excluir entradas PIX
+   - Implementado em routers/pix.py e crud.py
+   - Frontend PixManagement.tsx integrado com API
+
+2. GET /api/dashboard/stats - Dashboard com dados reais
+   - Novo router: routers/dashboard.py
+   - Retorna: fechamentos_hoje, quebra_acumulada, pendentes,
+     total_processado, chart_data, ultimos_fechamentos
+   - Frontend Dashboard.tsx atualizado
+
+3. Limpeza do Modal de Sangria
+   - Removido select de operadores mockado
+   - Backend já usa usuário logado automaticamente
+
+4. Correção de Bug - Parsing de Data
+   - Problema: Data com hora "24/11/2025 14:38:43" falhava
+   - Solução: Tratamento de datetime com hora em closings.py
+
+5. Identificação de Sangrias (UX Inline Expansível)
+   - Campo 'descricao' adicionado em closing_movements (banco)
+   - Interface: clique na movimentação expande input de descrição
+   - Operador pode identificar sangrias durante conferência
+   - Arquivos modificados: types.ts, Conference.tsx, models.py,
+     schemas.py, closings.py
+
+6. Isolamento de Dados por Usuário
+   - Operador vê APENAS seus próprios lançamentos
+   - Admin vê TODOS os dados do sistema
+   - Rotas afetadas: /api/sangrias, /api/closings, /api/dashboard/stats
+   - Implementado via filtro operador_id == current_user.id
+
+7. Permissões PIX - Conciliação/Exclusão apenas Admin
+   - Operador pode CRIAR entradas PIX
+   - APENAS Admin pode conciliar (PUT /api/pix/{id}/status)
+   - APENAS Admin pode excluir (DELETE /api/pix/{id})
+   - Retorna 403 Forbidden para operadores
+
+8. Auto-Criação de Sangrias
+   - Ao criar fechamento com movimentos "SANGRIA"
+   - Sistema cria automaticamente registro em /api/sangrias
+   - Usa a descrição fornecida pelo operador como motivo
+   - Vinculado ao mesmo operador do fechamento
+
+9. Polimento Final de UI - Permissões de Operador
+   - Ocultação de botões Excluir/Conciliar no módulo PIX para operadores
+   - Barra de ação em lote (bulk) ocultada para operadores
+   - Botão de exclusão individual ocultado para operadores
+   - Componentes atualizados: App.tsx, PixManagement.tsx, SangriaList.tsx
+   - Prop `isAdmin` passada aos componentes para controle condicional
+   - Backend já bloqueia ações (retorna 403), frontend agora oculta visualmente
+
+10. Exibição de Nomes de Operadores
+    - Sangrias: exibe `operador_nome` corretamente na listagem
+    - Fechamentos: exibe nome do operador na conferência e detalhes
+    - Backend enriche resposta com nome do operador via relacionamento
+
+11. Dashboard Padrão = Ontem
+    - Dashboard agora exibe dados do dia anterior por padrão
+    - Motivo: fechamentos são realizados no fim do dia
+    - Durante o dia, dados de hoje ainda não existem
+    - Arquivos: dashboard.py, Dashboard.tsx
+
+12. Filtro de Data no Dashboard
+    - Adicionado seletor de data no Dashboard
+    - Backend aceita parâmetro ?data=YYYY-MM-DD
+    - Labels dinâmicos baseados na data selecionada
+    - Permite consultar histórico de qualquer data
+
+13. Ocultação de Usuários Inativos
+    - Listagem de operadores exibe apenas usuários ativos
+    - Soft delete mantém dados no banco
+    - Filtro aplicado em crud.get_users()
+
+> FASE 6: Melhorias Operacionais (29/12/2025)
+----------------------------------------------
+1. Alteração de Senha pelo Admin no Modal de Edição
+   - Admin pode alterar senha de qualquer operador no modal de edição
+   - Campo de senha aparece com label "Nova Senha (deixe em branco para manter)"
+   - Backend: UserUpdate schema agora aceita campo 'senha' opcional
+   - CRUD update_user aplica hash automaticamente se senha fornecida
+   - Frontend: campo de senha exibido em modo edição com placeholder explicativo
+   - Arquivos: schemas.py, crud.py, Operators.tsx
+
+2. Correção de Filtros de Data
+   - Dashboard: agora filtra por data_referencia (data do caixa) ao invés de created_at
+   - Sangrias: filtro por data de lançamento corrigido (YYYY-MM-DD)
+   - PIX: já estava correto
+   - Histórico de Fechamentos: comparação de strings YYYY-MM-DD
+
+3. Lançamento Automático de Movimentações
+   - TODAS as saídas do PDF agora viram registros de Sangria automaticamente
+   - Entradas com "PIX" no nome viram registros de PIX Recebidos
+   - Motivo/Observação populado corretamente com descrição do movimento
+   - Arquivos: closings.py
+
+4. Exibição de Nome do Operador nos Fechamentos
+   - Adicionada propriedade `operador_nome` no model `Closing`
+   - Atualizado schema `ClosingResponse` para incluir o campo
+   - Frontend agora exibe o nome ao invés de "Operador #ID"
+
+5. Regra de Auto-Aprovação de Fechamentos
+   - Se a diferença total (quebra) for menor ou igual a R$ 3,00, o fechamento é aprovado automaticamente.
+   - Caso contrário, permanece como 'Pendente' para análise do gerente.
+ 
+5. Regra de Auto-Aprovação de Fechamentos
+   - Se a diferença total (quebra) for menor ou igual a R$ 3,00, o fechamento é aprovado automaticamente.
+   - Caso contrário, permanece como 'Pendente' para análise do gerente.
+   - Arquivo modificado: routers/closings.py
+
+6. Correção de Sangrias Automáticas
+   - Adicionada relação entre Sangria e Fechamento (closing_id).
+   - Ao excluir um Fechamento, as Sangrias geradas por ele são excluídas automaticamente (Cascata).
+   - Implementada rota GET /api/sangrias/{id} para evitar erros 500 no frontend.
+   - Arquivos: models.py, routers/closings.py, routers/sangrias.py, schemas.py
+   - Frontend: Types e SangriaList atualizados para suportar vínculo com Fechamento.
+
+7. Auditoria de Integração Frontend/Backend (30/12/2025)
+   - Verificada comunicação de todos os módulos (Sangria, Fechamento, Dashboard).
+   - Tipagem do Frontend sincronizada com Backend (Schemas Pydantic).
+   - Testes manuais e automatizados de ciclo de vida (Criação/Deleção em Cascata) aprovados.
+
+
+
+
+> PROJETO CONCLUÍDO - 29/12/2025
+================================
+Status: ✅ PRODUÇÃO ESTÁVEL
+Todas as funcionalidades implementadas e testadas.
+
+================================================================================
+                           INFORMAÇÕES DE PRODUÇÃO
+================================================================================
+
+[SERVIDOR]
+- IP: 72.60.6.135
+- Domínio: https://minasfarma.plataformaninja.com
+- SSL: Let's Encrypt (válido até 2026-03-19)
+
+[ACESSOS]
+- Sistema: https://minasfarma.plataformaninja.com
+- API Docs: https://minasfarma.plataformaninja.com/docs
+- Acesso Interno Frontend: http://72.60.6.135:3007
+- Acesso Interno API: http://72.60.6.135:6005
+
+[BANCO DE DADOS - PostgreSQL Externo]
+- Host: 72.60.6.135
+- Porta: 5432
+- Database: minas_farma
+- Usuário: minas_farma_user
+
+[CONTAINERS DOCKER]
+- farma_canaa_backend_prod (FastAPI + Gunicorn na porta 6005)
+- farma_canaa_frontend_prod (Nginx na porta 3007)
+
+[CREDENCIAIS PADRÃO]
+- Login: admin
+- Senha: admin
+- IMPORTANTE: Alterar senha em produção!
+
+[COMANDOS ÚTEIS]
+# Ver status dos containers
+$ docker ps | grep farma_canaa
+
+# Ver logs em tempo real
+$ docker compose -f docker-compose.prod.yml logs -f
+
+# Reiniciar serviços
+$ docker compose -f docker-compose.prod.yml restart
+
+# Parar serviços
+$ docker compose -f docker-compose.prod.yml down
+
+# Rebuild e reiniciar
+$ docker compose -f docker-compose.prod.yml up -d --build

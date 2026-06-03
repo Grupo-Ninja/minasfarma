@@ -16,6 +16,7 @@ export interface Movement {
   obs: string;
   tipo: 'Entrada' | 'Saída';
   valor: number;
+  descricao?: string; // Descrição/identificação adicionada pelo operador
 }
 
 export interface PaymentMethod {
@@ -56,6 +57,10 @@ export interface SangriaRecord {
   data: string;
   valor: number;
   motivo: string;
+  status: 'Pendente' | 'Conciliado';
+  origem: 'Manual' | 'Fechamento';
+  closing_id?: number;
+  operador_id?: number; // Para controle de permissões
 }
 
 export enum AppRoute {

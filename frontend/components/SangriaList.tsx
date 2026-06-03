@@ -1,14 +1,18 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { getSangrias, createSangria } from '../api';
-import { Wallet, Search, Filter, Calendar, Plus, ArrowDownFromLine } from 'lucide-react';
+import { getSangrias, createSangria, deleteSangria, updateSangriaStatus } from '../api';
+import { Wallet, Search, Filter, Calendar, Plus, ArrowDownFromLine, Trash2, CheckCircle, TicketX } from 'lucide-react';
 import { MOCK_SANGRIAS } from '../constants';
 import { SangriaRecord } from '../types';
 
-const SangriaList: React.FC = () => {
+interface SangriaListProps {
+    isAdmin?: boolean;
+}
+
+const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
     const [filterDate, setFilterDate] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-    const [sangrias, setSangrias] = useState<SangriaRecord[]>(MOCK_SANGRIAS);
+    const [sangrias, setSangrias] = useState<SangriaRecord[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // New Sangria State
@@ -33,15 +37,15 @@ const SangriaList: React.FC = () => {
     const fetchSangrias = async () => {
         try {
             const data = await getSangrias();
-            // Map API response to Component Type if needed
-            // API returns: { id, valor, motivo, created_at, operador_id, operador_nome }
-            // Component expects: { id, data, valor, motivo, operador }
             const mapped = data.map((item: any) => ({
                 id: item.id.toString(),
-                data: item.created_at,
+                data: item.created_at ? item.created_at.split('T')[0] : '',
                 valor: item.valor,
                 motivo: item.motivo,
-                operador: item.operador_nome || 'Operador #' + item.operador_id // Fallback
+                operador: item.operador_nome || 'Operador #' + item.operador_id,
+                status: item.status,
+                origem: item.origem,
+                closing_id: item.closing_id,
             }));
             setSangrias(mapped);
         } catch (error) {
@@ -54,18 +58,43 @@ const SangriaList: React.FC = () => {
     }, []);
 
     const handleAdd = async () => {
-        if (!newSangria.valor) return; // Operador is handled by backend now
+        if (!newSangria.valor) return;
 
         try {
             await createSangria({
                 valor: parseFloat(newSangria.valor),
                 motivo: newSangria.motivo || 'Excesso de Caixa'
             });
-            await fetchSangrias(); // Refresh list
+            await fetchSangrias();
             setIsModalOpen(false);
             setNewSangria({ valor: '', motivo: '', operador: '' });
         } catch (err) {
             alert('Erro ao criar sangria');
+        }
+    };
+
+    const handleDelete = async (id: string, origem: string) => {
+        if (origem === 'Fechamento') {
+            alert('Não é possível excluir sangria gerada automaticamente por fechamento de caixa.');
+            return;
+        }
+        if (!window.confirm('Excluir sangria?')) return;
+
+        try {
+            await deleteSangria(parseInt(id));
+            fetchSangrias();
+        } catch (err: any) {
+            alert(err.response?.data?.detail || 'Erro ao excluir sangria');
+        }
+    };
+
+    const toggleStatus = async (id: string, currentStatus: string) => {
+        const newStatus = currentStatus === 'Conciliado' ? 'Pendente' : 'Conciliado';
+        try {
+            await updateSangriaStatus(parseInt(id), newStatus);
+            fetchSangrias();
+        } catch (err) {
+            alert('Erro ao alterar status');
         }
     };
 
@@ -154,12 +183,12 @@ const SangriaList: React.FC = () => {
             <div className="md:hidden space-y-4">
                 {filteredSangrias.map((item) => (
                     <div key={item.id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                        <div className={`absolute top-0 left-0 w-1 h-full ${item.status === 'Conciliado' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
                         <div className="flex justify-between items-start mb-3">
                             <div>
                                 <h3 className="font-bold text-[#0A1E35] text-lg">{item.operador}</h3>
                                 <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                                    <Calendar size={12} /> {new Date(item.data).toLocaleDateString('pt-BR')}
+                                    <Calendar size={12} /> {new Date(item.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
                                 </p>
                             </div>
                             <span className="text-lg font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">
@@ -171,6 +200,29 @@ const SangriaList: React.FC = () => {
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Motivo:</span>
                                 <span className="font-medium text-slate-700">{item.motivo}</span>
+                            </div>
+                            <div className="flex justify-between items-center mt-2">
+                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${item.origem === 'Fechamento' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                    {item.origem}
+                                </span>
+                                {isAdmin && (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => toggleStatus(item.id, item.status)}
+                                            className={`p-2 rounded-full ${item.status === 'Conciliado' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-emerald-50 hover:text-emerald-500'}`}
+                                            title={item.status === 'Conciliado' ? 'Desconciliar' : 'Conciliar'}
+                                        >
+                                            {item.status === 'Conciliado' ? <CheckCircle size={16} /> : <div className="w-4 h-4 border-2 border-slate-400 rounded-full" />}
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(item.id, item.origem)}
+                                            className={`p-2 rounded-full ${item.origem === 'Fechamento' ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'}`}
+                                            disabled={item.origem === 'Fechamento'}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -185,7 +237,10 @@ const SangriaList: React.FC = () => {
                             <th className="px-6 py-4 w-40 text-xs uppercase text-slate-500 font-semibold tracking-wider">Data</th>
                             <th className="px-6 py-4 w-1/4 text-xs uppercase text-slate-500 font-semibold tracking-wider">Operador</th>
                             <th className="px-6 py-4 text-xs uppercase text-slate-500 font-semibold tracking-wider">Motivo</th>
+                            <th className="px-6 py-4 w-32 text-xs uppercase text-slate-500 font-semibold tracking-wider text-center">Origem</th>
+                            <th className="px-6 py-4 w-32 text-xs uppercase text-slate-500 font-semibold tracking-wider text-center">Status</th>
                             <th className="px-6 py-4 w-40 text-right text-xs uppercase text-slate-500 font-semibold tracking-wider">Valor</th>
+                            {isAdmin && <th className="px-6 py-4 w-24 text-right text-xs uppercase text-slate-500 font-semibold tracking-wider">Ações</th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -194,7 +249,7 @@ const SangriaList: React.FC = () => {
                                 <td className="px-6 py-4">
                                     <div className="flex items-center gap-2 text-slate-600">
                                         <Calendar size={14} className="text-slate-400" />
-                                        <span className="text-sm font-medium">{new Date(item.data).toLocaleDateString('pt-BR')}</span>
+                                        <span className="text-sm font-medium">{new Date(item.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4">
@@ -203,20 +258,44 @@ const SangriaList: React.FC = () => {
                                 <td className="px-6 py-4">
                                     <span className="text-sm text-slate-600">{item.motivo}</span>
                                 </td>
+                                <td className="px-6 py-4 text-center">
+                                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${item.origem === 'Fechamento' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
+                                        {item.origem}
+                                    </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${item.status === 'Conciliado' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-600'}`}>
+                                        {item.status}
+                                    </span>
+                                </td>
                                 <td className="px-6 py-4 text-right">
                                     <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100">
                                         R$ {item.valor.toFixed(2)}
                                     </span>
                                 </td>
+                                {isAdmin && (
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex justify-end gap-1">
+                                            <button
+                                                onClick={() => toggleStatus(item.id, item.status)}
+                                                className={`p-1.5 rounded hover:bg-slate-100 ${item.status === 'Conciliado' ? 'text-emerald-600' : 'text-slate-400'}`}
+                                                title={item.status === 'Conciliado' ? 'Desconciliar' : 'Conciliar'}
+                                            >
+                                                {item.status === 'Conciliado' ? <CheckCircle size={16} /> : <div className="w-4 h-4 border-2 border-slate-400 rounded-full" />}
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(item.id, item.origem)}
+                                                className={`p-1.5 rounded ${item.origem === 'Fechamento' ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50'}`}
+                                                title="Excluir"
+                                                disabled={item.origem === 'Fechamento'}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                )}
                             </tr>
                         ))}
-                        {filteredSangrias.length === 0 && (
-                            <tr>
-                                <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
-                                    Nenhuma sangria encontrada.
-                                </td>
-                            </tr>
-                        )}
                     </tbody>
                 </table>
             </div>
@@ -233,19 +312,9 @@ const SangriaList: React.FC = () => {
                         </div>
 
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Operador</label>
-                                <select
-                                    className="w-full px-4 py-3 border border-slate-300 bg-white text-slate-900 rounded-lg focus:ring-2 focus:ring-[#0A1E35]"
-                                    value={newSangria.operador}
-                                    onChange={e => setNewSangria({ ...newSangria, operador: e.target.value })}
-                                >
-                                    <option value="">Selecione...</option>
-                                    <option value="João Silva">João Silva</option>
-                                    <option value="Maria Souza">Maria Souza</option>
-                                    <option value="Carlos Lima">Carlos Lima</option>
-                                </select>
-                            </div>
+                            <p className="text-sm text-slate-500">
+                                O operador será registrado automaticamente de acordo com o usuário logado.
+                            </p>
 
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Valor (R$)</label>
