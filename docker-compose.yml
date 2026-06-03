@@ -31,7 +31,11 @@ services:
       - farma_net
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
     container_name: farma_frontend
     volumes:
       - ./frontend:/app
