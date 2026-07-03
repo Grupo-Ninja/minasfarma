@@ -8,6 +8,8 @@ import {
 import { Trash2 } from 'lucide-react';
 import { ClosingData, PaymentMethod, Movement } from '../types';
 import { getClosings, getClosing, uploadClosingPDFs, createClosingFromPDFs, approveClosing, rejectClosing, unapproveClosing, deleteClosing, getMe } from '../api';
+import Pagination from './Pagination';
+import { useDebounce } from '../useDebounce';
 
 type ViewState = 'LIST' | 'UPLOAD' | 'CONFERENCE' | 'DETAIL';
 
@@ -38,22 +40,44 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
     checkAdmin();
   }, []);
 
-  // Fetch History
-  const fetchHistory = async () => {
+  // Filters
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 400);
+
+  // Paginação (server-side)
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+  const [sumQuebra, setSumQuebra] = useState(0);
+
+  const closingFilters = () => ({
+    search: debouncedSearch || undefined,
+    status: statusFilter || undefined,
+    start_date: startDate || undefined,
+    end_date: endDate || undefined,
+  });
+
+  // Fetch History (paginado + filtrado no servidor; lista LEVE sem movimentos/conferencias)
+  const fetchHistory = async (p = page) => {
     setIsLoading(true);
     try {
-      const res = await getClosings();
-      const mapped = res.map((item: any) => ({
+      const res = await getClosings({ page: p, page_size: pageSize, ...closingFilters() });
+      const mapped = (res.items || []).map((item: any) => ({
         id: item.id,
         operador: item.operador_nome || `Operador #${item.operador_id}`,
         operador_id: item.operador_id,
         data: item.data_referencia,
         status: item.status,
         quebra: item.total_quebra,
-        movimentos: item.movimentos || [],
-        conferencias: item.conferencias || []
       }));
       setHistory(mapped);
+      setTotal(res.total || 0);
+      setPages(res.pages || 0);
+      setSumQuebra(res.summary?.sum_quebra || 0);
     } catch (error) {
       console.error("Erro ao buscar fechamentos", error);
     } finally {
@@ -61,15 +85,13 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
     }
   };
 
+  // Volta p/ página 1 quando filtros mudam
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, startDate, endDate]);
+  // Busca ao entrar na lista ou mudar página/filtros
   useEffect(() => {
-    if (view === 'LIST') fetchHistory();
-  }, [view]);
-
-  // Filters
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+    if (view === 'LIST') fetchHistory(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, page, debouncedSearch, statusFilter, startDate, endDate]);
 
   // Upload State
   const [file1, setFile1] = useState<File | null>(null);
@@ -209,65 +231,67 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
     }
   };
 
-  // Ver detalhes de um fechamento
-  const handleViewDetail = (item: any) => {
+  // Ver detalhes de um fechamento (busca o fechamento COMPLETO por id — a lista é leve)
+  const handleViewDetail = async (item: any) => {
     setSelectedClosing(item);
-    // Mapear para o formato esperado pelo componente de conferência
-    const closingData: ClosingData = {
-      operadorInfo: {
-        operador: item.operador,
-        data: item.data,
-        caixa: '',
-        valoresIniciais: { abertura: 0, fundoTroco: 0 }
-      },
-      movimentos: item.movimentos?.map((m: any, idx: number) => ({
-        id: idx + 1,
-        historico: m.historico,
-        moeda: m.moeda,
-        obs: m.historico,
-        tipo: m.tipo,
-        valor: m.valor,
-        descricao: m.descricao || ''
-      })) || [],
-      conferencia: item.conferencias?.map((c: any) => ({
-        forma: c.forma_pagamento,
-        informado: c.valor_informado,
-        calculado: c.valor_calculado,
-        oficial: c.valor_oficial,
-        diferenca: c.diferenca,
-        justificativa: c.justificativa || ''
-      })) || []
-    };
-    setData(closingData);
     setView('DETAIL');
+    setIsLoading(true);
+    try {
+      const full = await getClosing(item.id);
+      const closingData: ClosingData = {
+        operadorInfo: {
+          operador: item.operador,
+          data: item.data,
+          caixa: '',
+          valoresIniciais: { abertura: 0, fundoTroco: 0 }
+        },
+        movimentos: (full.movimentos || []).map((m: any, idx: number) => ({
+          id: idx + 1,
+          historico: m.historico,
+          moeda: m.moeda,
+          obs: m.historico,
+          tipo: m.tipo,
+          valor: m.valor,
+          descricao: m.descricao || ''
+        })),
+        conferencia: (full.conferencias || []).map((c: any) => ({
+          forma: c.forma_pagamento,
+          informado: c.valor_informado,
+          calculado: c.valor_calculado,
+          oficial: c.valor_oficial,
+          diferenca: c.diferenca,
+          justificativa: c.justificativa || ''
+        }))
+      };
+      setData(closingData);
+    } catch (err) {
+      console.error('Erro ao carregar detalhes do fechamento', err);
+      alert('Erro ao carregar detalhes do fechamento.');
+      setView('LIST');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // --- Logic for History List ---
-  const filteredHistory = useMemo(() => {
-    return history.filter(item => {
-      const matchesSearch = item.operador ? item.operador.toLowerCase().includes(searchTerm.toLowerCase()) : true;
-      const matchesStatus = statusFilter ? item.status === statusFilter : true;
+  // A lista já vem filtrada/paginada do servidor
+  const filteredHistory = history;
 
-      let matchesDate = true;
-      if (startDate || endDate) {
-        // Extrair apenas a parte da data (YYYY-MM-DD) para comparação
-        const itemDateStr = item.data.split('T')[0]; // "2025-12-01"
-
-        // Comparação direta de strings YYYY-MM-DD funciona corretamente
-        if (startDate && itemDateStr < startDate) {
-          matchesDate = false;
-        }
-        if (endDate && itemDateStr > endDate) {
-          matchesDate = false;
-        }
-      }
-
-      return matchesSearch && matchesDate && matchesStatus;
-    });
-  }, [history, searchTerm, startDate, endDate, statusFilter]);
-
-  const handlePrintReport = () => {
-    const totalQuebra = filteredHistory.reduce((acc, item) => acc + item.quebra, 0);
+  const handlePrintReport = async () => {
+    // Para o relatório, busca TODOS os registros que casam com o filtro (não só a página)
+    let rows = filteredHistory;
+    try {
+      const res = await getClosings({ page: 1, page_size: 1000, ...closingFilters() });
+      rows = (res.items || []).map((item: any) => ({
+        id: item.id,
+        operador: item.operador_nome || `Operador #${item.operador_id}`,
+        data: item.data_referencia,
+        status: item.status,
+        quebra: item.total_quebra,
+      }));
+    } catch (e) {
+      console.error('Erro ao gerar relatório completo, usando página atual', e);
+    }
+    const totalQuebra = rows.reduce((acc, item) => acc + item.quebra, 0);
     const reportContent = `
       <html>
         <head>
@@ -288,7 +312,7 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
               <th class="px-4 py-3 border-b text-right">Quebra</th>
             </tr></thead>
             <tbody>
-              ${filteredHistory.map(item => `
+              ${rows.map(item => `
                 <tr class="border-b">
                   <td class="px-4 py-3">${new Date(item.data).toLocaleDateString('pt-BR')}</td>
                   <td class="px-4 py-3 font-bold">${item.operador}</td>
@@ -432,7 +456,7 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
                 />
               </div>
 
-              <button onClick={fetchHistory} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Atualizar">
+              <button onClick={() => fetchHistory(page)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Atualizar">
                 <RefreshCw size={16} />
               </button>
             </div>
@@ -535,6 +559,7 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
                   )}
                 </tbody>
               </table>
+              <Pagination page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} />
             </div>
           )}
         </div>

@@ -1,9 +1,10 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getSangrias, createSangria, deleteSangria, updateSangriaStatus } from '../api';
 import { Wallet, Search, Filter, Calendar, Plus, ArrowDownFromLine, Trash2, CheckCircle, TicketX } from 'lucide-react';
-import { MOCK_SANGRIAS } from '../constants';
 import { SangriaRecord } from '../types';
+import Pagination from './Pagination';
+import { useDebounce } from '../useDebounce';
 
 interface SangriaListProps {
     isAdmin?: boolean;
@@ -22,22 +23,23 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
         operador: ''
     });
 
-    const filteredSangrias = useMemo(() => {
-        return sangrias.filter(item => {
-            const matchesSearch = item.operador.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.motivo.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesDate = filterDate ? item.data === filterDate : true;
-            return matchesSearch && matchesDate;
-        });
-    }, [sangrias, searchTerm, filterDate]);
-
-    const totalSangrias = filteredSangrias.reduce((acc, curr) => acc + curr.valor, 0);
+    // Paginação (server-side)
+    const [page, setPage] = useState(1);
+    const pageSize = 20;
+    const [total, setTotal] = useState(0);
+    const [pages, setPages] = useState(0);
+    const [sumValor, setSumValor] = useState(0);
+    const debouncedSearch = useDebounce(searchTerm, 400);
 
     // API Integration
-    const fetchSangrias = async () => {
+    const fetchSangrias = async (p = page) => {
         try {
-            const data = await getSangrias();
-            const mapped = data.map((item: any) => ({
+            const res = await getSangrias({
+                page: p, page_size: pageSize,
+                search: debouncedSearch || undefined,
+                date: filterDate || undefined,
+            });
+            const mapped = (res.items || []).map((item: any) => ({
                 id: item.id.toString(),
                 data: item.created_at ? item.created_at.split('T')[0] : '',
                 valor: item.valor,
@@ -48,14 +50,20 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
                 closing_id: item.closing_id,
             }));
             setSangrias(mapped);
+            setTotal(res.total || 0);
+            setPages(res.pages || 0);
+            setSumValor(res.summary?.sum_valor || 0);
         } catch (error) {
             console.error("Erro ao buscar sangrias:", error);
         }
     };
 
-    useEffect(() => {
-        fetchSangrias();
-    }, []);
+    // Volta para a página 1 quando um filtro muda
+    useEffect(() => { setPage(1); }, [debouncedSearch, filterDate]);
+    // Busca quando página ou filtros mudam
+    useEffect(() => { fetchSangrias(page); }, [page, debouncedSearch, filterDate]);
+
+    const totalSangrias = sumValor;
 
     const handleAdd = async () => {
         if (!newSangria.valor) return;
@@ -134,7 +142,7 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Qtd. Sangrias</span>
                     </div>
                     <p className="text-xl md:text-2xl font-bold text-[#0A1E35]">
-                        {filteredSangrias.length}
+                        {total}
                     </p>
                 </div>
             </div>
@@ -181,7 +189,7 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
 
             {/* Mobile Card View */}
             <div className="md:hidden space-y-4">
-                {filteredSangrias.map((item) => (
+                {sangrias.map((item) => (
                     <div key={item.id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
                         <div className={`absolute top-0 left-0 w-1 h-full ${item.status === 'Conciliado' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
                         <div className="flex justify-between items-start mb-3">
@@ -244,7 +252,7 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {filteredSangrias.map((item) => (
+                        {sangrias.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
                                 <td className="px-6 py-4">
                                     <div className="flex items-center gap-2 text-slate-600">
@@ -298,6 +306,14 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
                         ))}
                     </tbody>
                 </table>
+                <Pagination page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} />
+            </div>
+
+            {/* Paginação mobile */}
+            <div className="md:hidden">
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <Pagination page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} />
+                </div>
             </div>
 
             {/* Modal Nova Sangria */}

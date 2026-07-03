@@ -1,8 +1,9 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Calendar, DollarSign, CheckSquare, Square, Filter, CheckCircle, X } from 'lucide-react';
 import { PixEntry } from '../types';
 import { getPixEntries, createPix, updatePixStatus, deletePix } from '../api';
+import Pagination from './Pagination';
 
 interface PixManagementProps {
   isAdmin?: boolean;
@@ -20,35 +21,40 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
     data: new Date().toISOString().split('T')[0]
   });
 
-  // Filtered List
-  const filteredEntries = useMemo(() => {
-    if (!filterDate) return entries;
-    return entries.filter(e => e.data === filterDate);
-  }, [entries, filterDate]);
+  // Paginação (server-side)
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+  const [sumValor, setSumValor] = useState(0);
+
+  // Lista servida pelo servidor (já filtrada/paginada)
+  const filteredEntries = entries;
 
   // Fetch Pix Entries
-  const fetchEntries = async () => {
+  const fetchEntries = async (p = page) => {
     try {
-      const data = await getPixEntries();
-      // Map if necessary, but API likely matches interface or close enough
-      // API uses 'data_transacao', Component uses 'data'. 
-      // Need to map.
-      const mapped = data.map((item: any) => ({
+      const res = await getPixEntries({ page: p, page_size: pageSize, date: filterDate || undefined });
+      const mapped = (res.items || []).map((item: any) => ({
         id: item.id.toString(),
-        data: item.data_transacao ? item.data_transacao.split('T')[0] : '', // Simple date part
+        data: item.data_transacao ? item.data_transacao.split('T')[0] : '',
         valor: item.valor,
         observacao: item.observacao,
         status: item.status
       }));
       setEntries(mapped);
+      setTotal(res.total || 0);
+      setPages(res.pages || 0);
+      setSumValor(res.summary?.sum_valor || 0);
     } catch (err) {
       console.error("Erro ao buscar Pix", err);
     }
   };
 
-  useEffect(() => {
-    fetchEntries();
-  }, []);
+  // Volta para página 1 ao trocar o filtro de data
+  useEffect(() => { setPage(1); }, [filterDate]);
+  // Busca ao mudar página/filtro; limpa seleção
+  useEffect(() => { fetchEntries(page); setSelectedIds(new Set()); }, [page, filterDate]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,8 +138,6 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
     }
   };
 
-  const total = filteredEntries.reduce((acc, curr) => acc + curr.valor, 0);
-
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-fade-in pb-12">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -165,7 +169,7 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
           </div>
           <div className="bg-[#D4C4A8] text-[#0A1E35] px-4 py-2 rounded-lg font-bold flex flex-col md:flex-row md:items-center gap-1 md:gap-2 shadow-sm text-center">
             <span className="text-[10px] md:text-xs uppercase tracking-wide opacity-75">{filterDate ? 'Total Dia' : 'Total'}</span>
-            <span className="text-sm md:text-base">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="text-sm md:text-base">R$ {sumValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
           </div>
         </div>
       </div>
@@ -391,6 +395,12 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
                   )}
                 </tbody>
               </table>
+              <Pagination page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} />
+            </div>
+
+            {/* Paginação mobile */}
+            <div className="md:hidden bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <Pagination page={page} pages={pages} total={total} pageSize={pageSize} onPageChange={setPage} />
             </div>
           </div>
         </div>

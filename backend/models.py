@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Enum, Float, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Boolean, Enum, Float, ForeignKey, DateTime, Text, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -32,6 +32,7 @@ class User(Base):
     # Relationships
     sangrias = relationship("Sangria", back_populates="operador_rel")
     fechamentos = relationship("Closing", back_populates="operador_rel")
+    escala = relationship("EmployeeSchedule", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 class SangriaStatus(str, enum.Enum):
     PENDENTE = "Pendente"
@@ -117,3 +118,55 @@ class ClosingConference(Base):
     justificativa = Column(String, nullable=True)
 
     closing = relationship("Closing", back_populates="conferencias")
+
+
+# =========================================================================
+#  ESCALA DE TRABALHO (rotativa por N semanas, ancorada numa data global)
+# =========================================================================
+
+class EmployeeSchedule(Base):
+    """Escala de um funcionário: um ciclo rotativo de N semanas (Semana 1..N)."""
+    __tablename__ = "employee_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    num_weeks = Column(Integer, nullable=False, default=4)  # Tamanho do ciclo (2, 4, ...)
+    source_filename = Column(String, nullable=True)         # PDF de origem
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="escala")
+    days = relationship(
+        "ScheduleDay",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+        order_by="ScheduleDay.week_index, ScheduleDay.weekday",
+    )
+
+
+class ScheduleDay(Base):
+    """Um dia dentro de uma semana do ciclo.
+
+    weekday: 0=Domingo, 1=Segunda, ... 6=Sábado (padrão do PDF).
+    shifts:  lista de turnos [{"entrada": "07:00", "saida": "15:00"}, ...].
+    """
+    __tablename__ = "schedule_days"
+    __table_args__ = (UniqueConstraint("schedule_id", "week_index", "weekday", name="uq_schedule_week_day"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("employee_schedules.id", ondelete="CASCADE"), nullable=False)
+    week_index = Column(Integer, nullable=False)   # 1..num_weeks
+    weekday = Column(Integer, nullable=False)       # 0=Domingo .. 6=Sábado
+    is_work = Column(Boolean, nullable=False, default=False)
+    shifts = Column(JSON, nullable=False, default=list)  # [{"entrada","saida"}]
+    note = Column(String, nullable=True)
+
+    schedule = relationship("EmployeeSchedule", back_populates="days")
+
+
+class AppSetting(Base):
+    """Configurações globais chave/valor (ex.: data-âncora da Semana 1)."""
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=True)

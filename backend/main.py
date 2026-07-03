@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import models, database, auth
-from routers import sangrias, pix, closings, users, pdf_upload, dashboard
+from routers import sangrias, pix, closings, users, pdf_upload, dashboard, schedules
 
 # Create Tables (for local dev simple setup)
-models.Base.metadata.create_all(bind=database.engine)
+# Resiliente: se faltar privilégio para criar alguma tabela (ex.: REFERENCES),
+# o app ainda sobe e as funções de leitura seguem funcionando.
+try:
+    models.Base.metadata.create_all(bind=database.engine)
+except Exception as e:
+    print(f"[startup] Aviso: não foi possível criar/verificar todas as tabelas: {e}")
 
 app = FastAPI(title="Minas Farma Canaã API")
 
@@ -32,6 +37,7 @@ app.include_router(pix.router)
 app.include_router(closings.router)
 app.include_router(pdf_upload.router)
 app.include_router(dashboard.router)
+app.include_router(schedules.router)
 
 @app.get("/")
 def read_root():

@@ -33,9 +33,9 @@ export const getMe = async () => {
 };
 
 // --- SANGRIA API ---
-export const getSangrias = async () => {
-    const response = await api.get('/api/sangrias/');
-    return response.data;
+export const getSangrias = async (params: { page?: number; page_size?: number; search?: string; date?: string } = {}) => {
+    const response = await api.get('/api/sangrias/', { params });
+    return response.data; // { items, total, page, page_size, pages, summary }
 };
 
 export const createSangria = async (data: { valor: number; motivo: string }) => {
@@ -54,9 +54,9 @@ export const deleteSangria = async (id: number) => {
 };
 
 // --- PIX API ---
-export const getPixEntries = async () => {
-    const response = await api.get('/api/pix/');
-    return response.data;
+export const getPixEntries = async (params: { page?: number; page_size?: number; search?: string; date?: string; status?: string } = {}) => {
+    const response = await api.get('/api/pix/', { params });
+    return response.data; // { items, total, page, page_size, pages, summary }
 };
 
 export const createPix = async (data: { valor: number; observacao?: string; data_transacao: string }) => {
@@ -82,10 +82,9 @@ export const getDashboardStats = async (data?: string) => {
 };
 
 // --- CLOSING API ---
-export const getClosings = async (status?: string) => {
-    const params = status ? `?status=${status}` : '';
-    const response = await api.get(`/api/closings/${params}`);
-    return response.data;
+export const getClosings = async (params: { page?: number; page_size?: number; status?: string; search?: string; start_date?: string; end_date?: string } = {}) => {
+    const response = await api.get('/api/closings/', { params });
+    return response.data; // { items, total, page, page_size, pages, summary }
 };
 
 export const getClosing = async (id: number) => {
@@ -185,6 +184,96 @@ export const updatePassword = async (id: number, data: { senha_atual: string; no
 
 export const reactivateUser = async (id: number) => {
     const response = await api.post(`/api/users/${id}/reactivate`);
+    return response.data;
+};
+
+// --- ESCALA DE TRABALHO ---
+// Extrai a escala de um PDF via IA (retorna dados para revisão, não salva)
+export const extractSchedulePDF = async (pdf: File) => {
+    const formData = new FormData();
+    formData.append('pdf', pdf);
+    const response = await api.post('/api/schedules/extract', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data; // ExtractResult
+};
+
+// Salva/substitui a escala de um funcionário
+export const saveSchedule = async (data: {
+    user_id: number;
+    num_weeks: number;
+    source_filename?: string | null;
+    days: any[];
+}) => {
+    const response = await api.post('/api/schedules/', data);
+    return response.data;
+};
+
+// Lista funcionários + status da escala (admin)
+export const getScheduleSummaries = async () => {
+    const response = await api.get('/api/schedules/');
+    return response.data; // ScheduleSummary[]
+};
+
+// Escala bruta (grade) de um funcionário (admin)
+export const getUserSchedule = async (userId: number) => {
+    const response = await api.get(`/api/schedules/user/${userId}`);
+    return response.data;
+};
+
+// Escala bruta do próprio usuário
+export const getMySchedule = async () => {
+    const response = await api.get('/api/schedules/me');
+    return response.data;
+};
+
+// Data-âncora global da Semana 1
+export const getAnchor = async () => {
+    const response = await api.get('/api/schedules/anchor');
+    return response.data; // { anchor_date }
+};
+
+export const setAnchor = async (anchor_date: string | null) => {
+    const response = await api.put('/api/schedules/anchor', { anchor_date });
+    return response.data;
+};
+
+// Integração OpenAI (configurável pela UI, admin)
+export const getIntegration = async () => {
+    const response = await api.get('/api/schedules/integration');
+    return response.data; // { configured, model, key_last4, source }
+};
+
+export const setIntegration = async (data: { api_key?: string | null; model?: string }) => {
+    const response = await api.put('/api/schedules/integration', data);
+    return response.data;
+};
+
+// Visão geral (semana ou mês x todos os funcionários) - admin
+export const getScheduleOverview = async (start?: string, end?: string) => {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const qs = params.toString();
+    const response = await api.get(`/api/schedules/overview${qs ? `?${qs}` : ''}`);
+    return response.data; // { week_start, dates, anchor_date, employees }
+};
+
+// Jornada calculada (self)
+export const getMyJourney = async (start?: string, end?: string) => {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const response = await api.get(`/api/schedules/journey?${params.toString()}`);
+    return response.data; // JourneyResponse
+};
+
+// Jornada calculada de um funcionário (admin)
+export const getUserJourney = async (userId: number, start?: string, end?: string) => {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const response = await api.get(`/api/schedules/journey/${userId}?${params.toString()}`);
     return response.data;
 };
 

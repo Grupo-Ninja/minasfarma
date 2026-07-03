@@ -7,6 +7,8 @@ import Conference from './components/Conference';
 import PixManagement from './components/PixManagement';
 import Operators from './components/Operators';
 import SangriaList from './components/SangriaList';
+import MySchedule from './components/MySchedule';
+import ScheduleAdmin from './components/ScheduleAdmin';
 import Login from './components/Login';
 import { AppRoute } from './types';
 import { getMe, logout } from './api';
@@ -82,6 +84,9 @@ const App: React.FC = () => {
         return <SangriaList isAdmin={isAdmin} />;
       case AppRoute.OPERATORS:
         return isAdmin ? <Operators /> : <Dashboard onNavigate={setCurrentRoute} />;
+      case AppRoute.MY_SCHEDULE:
+      case AppRoute.SCHEDULES:
+        return <ScheduleAdmin isAdmin={isAdmin} />;
       default:
         return <Dashboard onNavigate={setCurrentRoute} />;
     }

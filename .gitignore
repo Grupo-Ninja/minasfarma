@@ -26,3 +26,6 @@ Desktop.ini
 # Docker
 pgdata/
 pgdata_prod/
+
+# Dados internos (PDFs de escala importados manualmente - não fazem parte da app)
+arquivos/

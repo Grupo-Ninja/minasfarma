@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import cast, Date, func
 from typing import List, Optional
 from pydantic import BaseModel
 import crud, models, schemas, database, auth
@@ -55,26 +56,56 @@ def create_closing_route(
     return crud.create_closing(db=db, closing=closing, user_id=current_user.id)
 
 
-@router.get("/", response_model=List[schemas.ClosingResponse])
+@router.get("/", response_model=schemas.Page[schemas.ClosingListItem])
 def read_closings(
-    skip: int = 0, 
-    limit: int = 100, 
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
+    search: Optional[str] = None,       # busca por nome do operador
+    start_date: Optional[str] = None,   # YYYY-MM-DD (data_referencia)
+    end_date: Optional[str] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """Lista fechamentos - Admin vê todos, Operador vê apenas os seus"""
-    query = db.query(models.Closing)
-    
-    # Filtrar por usuário se não for admin
+    """Lista fechamentos paginados (versão LEVE, sem movimentos/conferencias).
+    Admin vê todos, Operador só os seus. Eager-load do operador evita N+1."""
+    query = db.query(models.Closing).options(joinedload(models.Closing.operador_rel))
+
     if current_user.cargo != "admin":
         query = query.filter(models.Closing.operador_id == current_user.id)
-    
     if status:
         query = query.filter(models.Closing.status == status)
-    
-    closings = query.order_by(models.Closing.created_at.desc()).offset(skip).limit(limit).all()
-    return closings
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        query = query.outerjoin(models.User, models.Closing.operador_id == models.User.id).filter(
+            models.User.nome.ilike(like)
+        )
+    if start_date:
+        try:
+            d = datetime.strptime(start_date, "%Y-%m-%d").date()
+            query = query.filter(cast(models.Closing.data_referencia, Date) >= d)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            d = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(cast(models.Closing.data_referencia, Date) <= d)
+        except ValueError:
+            pass
+
+    total, sum_quebra = query.with_entities(
+        func.count(models.Closing.id),
+        func.coalesce(func.sum(models.Closing.total_quebra), 0.0),
+    ).one()
+
+    closings = (query.order_by(models.Closing.created_at.desc())
+                .offset((page - 1) * page_size).limit(page_size).all())
+
+    pages = (total + page_size - 1) // page_size
+    return schemas.Page(
+        items=closings, total=total, page=page, page_size=page_size, pages=pages,
+        summary={"sum_quebra": round(float(sum_quebra), 2), "count": total},
+    )
 
 
 @router.get("/{closing_id}", response_model=schemas.ClosingResponse)

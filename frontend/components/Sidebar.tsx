@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, FileCheck, DollarSign, LogOut, Users, User, Wallet, X } from 'lucide-react';
+import { LayoutDashboard, FileCheck, DollarSign, LogOut, Users, User, Wallet, X, CalendarClock, CalendarCog } from 'lucide-react';
 import { AppRoute } from '../types';
 
 interface SidebarProps {
@@ -19,6 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, isAdmin, us
         { id: AppRoute.CONFERENCE, label: 'Fechamento de Caixa', icon: FileCheck },
         { id: AppRoute.SANGRIA, label: 'Sangrias', icon: Wallet },
         { id: AppRoute.PIX, label: 'Gestão de Pix', icon: DollarSign },
+        { id: AppRoute.SCHEDULES, label: 'Escalas', icon: CalendarClock },
     ];
 
     if (isAdmin) {

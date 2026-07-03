@@ -146,10 +146,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: '#64748b', fontSize: 12 }}
+                    tickFormatter={(v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })}
                   />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     cursor={{ fill: '#f1f5f9' }}
+                    formatter={(value: number) => [
+                      Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                      'Valor',
+                    ]}
+                    labelStyle={{ fontWeight: 700, color: '#0A1E35' }}
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={60}>
                     {chartData.map((entry, index) => (

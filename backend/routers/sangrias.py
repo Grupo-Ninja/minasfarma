@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import or_, cast, Date, func
+from typing import List, Optional
+from datetime import datetime
 import crud, models, schemas, database, auth
 
 router = APIRouter(
@@ -17,27 +19,54 @@ def create_sangria_route(
 ):
     return crud.create_sangria(db=db, sangria=sangria, user_id=current_user.id)
 
-@router.get("/", response_model=List[schemas.SangriaResponse])
+@router.get("/", response_model=schemas.Page[schemas.SangriaResponse])
 def read_sangrias(
-    skip: int = 0, 
-    limit: int = 100, 
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    date: Optional[str] = None,   # YYYY-MM-DD (filtra por created_at)
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """Lista sangrias - Admin vê todas, Operador vê apenas as suas"""
+    """Lista sangrias paginadas - Admin vê todas, Operador vê apenas as suas.
+    Filtros (search por operador/motivo, date) e soma são aplicados no servidor."""
     query = db.query(models.Sangria)
-    
+
     # Filtrar por usuário se não for admin
     if current_user.cargo != "admin":
         query = query.filter(models.Sangria.operador_id == current_user.id)
-    
-    sangrias = query.order_by(models.Sangria.created_at.desc()).offset(skip).limit(limit).all()
-    
-    # Enrich with operator name
+
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        query = query.outerjoin(models.User, models.Sangria.operador_id == models.User.id).filter(
+            or_(models.User.nome.ilike(like), models.Sangria.motivo.ilike(like))
+        )
+
+    if date:
+        try:
+            d = datetime.strptime(date, "%Y-%m-%d").date()
+            query = query.filter(cast(models.Sangria.created_at, Date) == d)
+        except ValueError:
+            pass
+
+    # count + soma numa única ida ao banco (reduz latência com DB remoto)
+    total, sum_valor = query.with_entities(
+        func.count(models.Sangria.id),
+        func.coalesce(func.sum(models.Sangria.valor), 0.0),
+    ).one()
+
+    sangrias = (query.order_by(models.Sangria.created_at.desc())
+                .offset((page - 1) * page_size).limit(page_size).all())
+
     for s in sangrias:
         if s.operador_rel:
             s.operador_nome = s.operador_rel.nome
-    return sangrias
+
+    pages = (total + page_size - 1) // page_size
+    return schemas.Page(
+        items=sangrias, total=total, page=page, page_size=page_size, pages=pages,
+        summary={"sum_valor": round(float(sum_valor), 2), "count": total},
+    )
 
 @router.get("/{sangria_id}", response_model=schemas.SangriaResponse)
 def get_sangria(
