@@ -67,14 +67,19 @@ const ScheduleOverview: React.FC = () => {
         [employees]
     );
 
-    // Mapa data -> [funcionarios que trabalham]
+    // Filtro: quais funcionários aparecem (por padrão, todos)
+    const [hidden, setHidden] = useState<Set<number>>(new Set());
+    const toggleEmp = (id: number) => setHidden(h => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    const visibleEmps = useMemo(() => empColors.filter(e => !hidden.has(e.user_id)), [empColors, hidden]);
+
+    // Mapa data -> [funcionarios que trabalham] (apenas os visíveis pelo filtro)
     const workByDate = useMemo(() => {
         const map: Record<string, any[]> = {};
-        empColors.forEach(e => (e.days || []).forEach((d: any) => {
+        visibleEmps.forEach(e => (e.days || []).forEach((d: any) => {
             if (d.is_work) (map[d.date] = map[d.date] || []).push(e);
         }));
         return map;
-    }, [empColors]);
+    }, [visibleEmps]);
 
     const weeksGrid = useMemo(() => {
         const chunks: string[][] = [];
@@ -83,7 +88,7 @@ const ScheduleOverview: React.FC = () => {
     }, [dates]);
 
     // ---------------- impressão ----------------
-    const legendHTML = () => empColors.map(e =>
+    const legendHTML = () => visibleEmps.map(e =>
         `<span class="item"><span class="dot" style="background:${e.color}"></span>${e.nome}</span>`
     ).join('');
 
@@ -92,7 +97,7 @@ const ScheduleOverview: React.FC = () => {
             const wd = parseISO(iso).getDay();
             return `<th>${WEEKDAY_LABELS[wd]}<br><span style="font-weight:400;font-size:10px;opacity:.85">${fmtDM(iso)}</span></th>`;
         }).join('');
-        const rows = empColors.map(e => {
+        const rows = visibleEmps.map(e => {
             const cells = e.days.map((d: any) => d.is_work
                 ? `<td class="work">${d.total_horas}h<br><span class="shifts" style="font-size:9px;color:#059669;font-weight:400">${(d.shifts || []).map((s: any) => s.entrada + '–' + s.saida).join('<br>')}</span></td>`
                 : `<td class="off">Folga</td>`).join('');
@@ -114,7 +119,7 @@ const ScheduleOverview: React.FC = () => {
                 const inMonth = dObj.getMonth() === viewMonth.getMonth();
                 const isToday = iso === todayISO;
                 const workers = workByDate[iso] || [];
-                const folga = empColors.filter(e => !workers.some(w => w.user_id === e.user_id));
+                const folga = visibleEmps.filter(e => !workers.some(w => w.user_id === e.user_id));
                 const chips = workers.map(e => `<span class="chip" style="background:${e.color}">${firstName(e.nome)}</span>`).join('');
                 const worklist = inMonth && workers.length
                     ? `<div class="lbl">Trabalham</div><div class="chips">${chips}</div>`
@@ -171,11 +176,35 @@ const ScheduleOverview: React.FC = () => {
                     )}
                 </div>
 
-                <button onClick={() => (mode === 'semana' ? printWeek() : printMonth())} disabled={employees.length === 0}
+                <button onClick={() => (mode === 'semana' ? printWeek() : printMonth())} disabled={visibleEmps.length === 0}
                     className="self-start md:self-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0A1E35] text-[#D4C4A8] font-bold text-sm hover:bg-[#162F4D] disabled:opacity-40">
                     <Printer size={16} /> Imprimir PDF
                 </button>
             </div>
+
+            {/* Filtro: escolher quais colaboradores aparecem */}
+            {!isLoading && !error && employees.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wide mr-1">Mostrar:</span>
+                    {empColors.map(e => {
+                        const on = !hidden.has(e.user_id);
+                        return (
+                            <button key={e.user_id} onClick={() => toggleEmp(e.user_id)}
+                                title={on ? 'Clique para ocultar' : 'Clique para mostrar'}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${on ? 'text-white border-transparent' : 'text-slate-400 border-slate-200 bg-slate-50'}`}
+                                style={on ? { background: e.color } : undefined}>
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: on ? 'rgba(255,255,255,0.8)' : e.color }} />
+                                {e.nome}
+                            </button>
+                        );
+                    })}
+                    {hidden.size > 0 && (
+                        <button onClick={() => setHidden(new Set())} className="text-xs text-[#0A1E35] font-semibold underline ml-1">
+                            Mostrar todos
+                        </button>
+                    )}
+                </div>
+            )}
 
             {error && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-700 p-4 rounded-xl flex items-start gap-3">
@@ -213,7 +242,7 @@ const ScheduleOverview: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {empColors.map((emp) => (
+                                {visibleEmps.map((emp) => (
                                     <tr key={emp.user_id} className="hover:bg-slate-50/60">
                                         <td className="sticky left-0 z-10 bg-white px-4 py-3 min-w-[160px]" style={{ borderLeft: `4px solid ${emp.color}` }}>
                                             <div className="flex items-center gap-2">
@@ -252,14 +281,6 @@ const ScheduleOverview: React.FC = () => {
             ) : !error && (
                 /* ---------- VISÃO MÊS (quem trabalha por dia, cor por funcionário) ---------- */
                 <div className="space-y-3">
-                    {/* Legenda */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap gap-x-4 gap-y-2">
-                        {empColors.map(e => (
-                            <span key={e.user_id} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                                <span className="w-3 h-3 rounded" style={{ background: e.color }} /> {e.nome}
-                            </span>
-                        ))}
-                    </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                         <div className="overflow-x-auto custom-scrollbar">
