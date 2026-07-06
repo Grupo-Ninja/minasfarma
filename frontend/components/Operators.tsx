@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, Edit, Trash2, Shield, User, Lock, RefreshCw, X, Check, AlertCircle } from 'lucide-react';
 import { getUsers, createUser, updateUser, deleteUser, reactivateUser } from '../api';
+import { useFeedback } from './Feedback';
 
 interface UserData {
     id: number;
@@ -12,6 +13,7 @@ interface UserData {
 }
 
 const Operators: React.FC = () => {
+    const { confirm, notify } = useFeedback();
     const [users, setUsers] = useState<UserData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
@@ -115,13 +117,20 @@ const Operators: React.FC = () => {
 
     // Desativar usuário
     const handleDelete = async (user: UserData) => {
-        if (!window.confirm(`Deseja desativar o usuário "${user.nome}"?`)) return;
+        const ok = await confirm({
+            title: 'Remover da equipe',
+            message: `Deseja remover "${user.nome || user.login}" da equipe? A escala dele também será excluída.`,
+            confirmText: 'Remover',
+            danger: true,
+        });
+        if (!ok) return;
 
         try {
             await deleteUser(user.id);
+            notify('Funcionário removido da equipe.', 'success');
             loadUsers();
         } catch (err: any) {
-            alert(err.response?.data?.detail || 'Erro ao desativar usuário.');
+            notify(err.response?.data?.detail || 'Erro ao desativar usuário.', 'error');
         }
     };
 
@@ -129,9 +138,10 @@ const Operators: React.FC = () => {
     const handleReactivate = async (user: UserData) => {
         try {
             await reactivateUser(user.id);
+            notify('Funcionário reativado.', 'success');
             loadUsers();
         } catch (err: any) {
-            alert(err.response?.data?.detail || 'Erro ao reativar usuário.');
+            notify(err.response?.data?.detail || 'Erro ao reativar usuário.', 'error');
         }
     };
 

@@ -5,12 +5,14 @@ import { Wallet, Search, Filter, Calendar, Plus, ArrowDownFromLine, Trash2, Chec
 import { SangriaRecord } from '../types';
 import Pagination from './Pagination';
 import { useDebounce } from '../useDebounce';
+import { useFeedback } from './Feedback';
 
 interface SangriaListProps {
     isAdmin?: boolean;
 }
 
 const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
+    const { confirm, notify } = useFeedback();
     const [filterDate, setFilterDate] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [sangrias, setSangrias] = useState<SangriaRecord[]>([]);
@@ -76,23 +78,26 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
             await fetchSangrias();
             setIsModalOpen(false);
             setNewSangria({ valor: '', motivo: '', operador: '' });
+            notify('Sangria registrada.', 'success');
         } catch (err) {
-            alert('Erro ao criar sangria');
+            notify('Erro ao criar sangria', 'error');
         }
     };
 
     const handleDelete = async (id: string, origem: string) => {
         if (origem === 'Fechamento') {
-            alert('Não é possível excluir sangria gerada automaticamente por fechamento de caixa.');
+            notify('Não é possível excluir sangria gerada automaticamente por fechamento de caixa.', 'error');
             return;
         }
-        if (!window.confirm('Excluir sangria?')) return;
+        const ok = await confirm({ title: 'Excluir sangria', message: 'Deseja excluir esta sangria?', confirmText: 'Excluir', danger: true });
+        if (!ok) return;
 
         try {
             await deleteSangria(parseInt(id));
+            notify('Sangria excluída.', 'success');
             fetchSangrias();
         } catch (err: any) {
-            alert(err.response?.data?.detail || 'Erro ao excluir sangria');
+            notify(err.response?.data?.detail || 'Erro ao excluir sangria', 'error');
         }
     };
 
@@ -102,7 +107,7 @@ const SangriaList: React.FC<SangriaListProps> = ({ isAdmin = false }) => {
             await updateSangriaStatus(parseInt(id), newStatus);
             fetchSangrias();
         } catch (err) {
-            alert('Erro ao alterar status');
+            notify('Erro ao alterar status', 'error');
         }
     };
 

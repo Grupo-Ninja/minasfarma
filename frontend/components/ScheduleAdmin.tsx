@@ -405,31 +405,29 @@ const ScheduleAdmin: React.FC<{ isAdmin?: boolean }> = ({ isAdmin = false }) => 
                     </div>
                 )}
 
-                {/* Revisão / edição */}
+                {/* Modal de edição / cadastro da escala */}
                 {draft && (
-                    <div className="mt-6 border-t border-slate-100 pt-5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={resetDraft}>
+                   <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
                             <div>
                                 <h4 className="font-bold text-[#0A1E35] flex items-center gap-2">
-                                    <Eye size={18} /> Revisão da escala — {selectedName}
+                                    <Eye size={18} /> Escala — {selectedName}
                                 </h4>
-                                <p className="text-xs text-slate-500">Confira e ajuste antes de salvar. Verde = trabalha, cinza = folga.</p>
+                                <p className="text-xs text-slate-500">Confira e ajuste. Verde = trabalha, cinza = folga.</p>
                             </div>
                             <div className="flex items-center gap-3">
                                 <label className="text-xs text-slate-500 flex items-center gap-2">
-                                    Semanas no ciclo:
+                                    Semanas:
                                     <input type="number" min={1} max={8} value={draft.num_weeks}
                                         onChange={e => changeNumWeeks(Number(e.target.value))}
                                         className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-slate-900" />
                                 </label>
-                                <button onClick={handleSave} disabled={saving}
-                                    className="px-5 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
-                                    <Save size={16} /> {saving ? 'Salvando...' : 'Salvar escala'}
-                                </button>
-                                <button onClick={resetDraft} className="p-2 text-slate-400 hover:text-slate-600" title="Cancelar"><X size={18} /></button>
+                                <button onClick={resetDraft} className="p-2 text-slate-400 hover:text-slate-600" title="Fechar"><X size={20} /></button>
                             </div>
                         </div>
 
+                        <div className="p-5 overflow-y-auto custom-scrollbar flex-1">
                         {warnings.length > 0 && (
                             <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg p-3">
                                 <p className="font-bold mb-1 flex items-center gap-1"><AlertCircle size={14} /> Reveja estes pontos (a IA teve dúvidas):</p>
@@ -479,7 +477,15 @@ const ScheduleAdmin: React.FC<{ isAdmin?: boolean }> = ({ isAdmin = false }) => 
                                 </div>
                             ))}
                         </div>
-                    </div>
+                        </div>
+                        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                            <button onClick={resetDraft} className="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 font-medium hover:bg-white">Cancelar</button>
+                            <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+                                <Save size={16} /> {saving ? 'Salvando...' : 'Salvar escala'}
+                            </button>
+                        </div>
+                   </div>
+                  </div>
                 )}
             </div>
 

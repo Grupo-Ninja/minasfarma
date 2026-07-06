@@ -259,7 +259,10 @@ def overview(
         num_days = 7
     dates = [week_start + timedelta(days=i) for i in range(num_days)]
 
+    # Apenas escalas de funcionários ATIVOS (funcionário removido some da visão)
     schedules = (db.query(models.EmployeeSchedule)
+                 .join(models.User, models.EmployeeSchedule.user_id == models.User.id)
+                 .filter(models.User.active == True)
                  .options(joinedload(models.EmployeeSchedule.user),
                           joinedload(models.EmployeeSchedule.days))
                  .all())

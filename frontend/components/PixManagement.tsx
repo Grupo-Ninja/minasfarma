@@ -4,12 +4,14 @@ import { Plus, Trash2, Calendar, DollarSign, CheckSquare, Square, Filter, CheckC
 import { PixEntry } from '../types';
 import { getPixEntries, createPix, updatePixStatus, deletePix } from '../api';
 import Pagination from './Pagination';
+import { useFeedback } from './Feedback';
 
 interface PixManagementProps {
   isAdmin?: boolean;
 }
 
 const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
+  const { confirm, notify } = useFeedback();
   const [filterDate, setFilterDate] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -68,20 +70,24 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
       });
       await fetchEntries();
       setNewEntry({ ...newEntry, valor: '', observacao: '' });
+      notify('Pix lançado.', 'success');
     } catch (err) {
-      alert("Erro ao lançar Pix");
+      notify("Erro ao lançar Pix", 'error');
     }
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({ title: 'Excluir Pix', message: 'Deseja excluir este lançamento de Pix?', confirmText: 'Excluir', danger: true });
+    if (!ok) return;
     try {
       await deletePix(parseInt(id));
       await fetchEntries();
       const newSelected = new Set(selectedIds);
       newSelected.delete(id);
       setSelectedIds(newSelected);
+      notify('Pix excluído.', 'success');
     } catch (err) {
-      alert("Erro ao excluir Pix");
+      notify("Erro ao excluir Pix", 'error');
     }
   };
 
@@ -112,8 +118,9 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
         }
         await fetchEntries();
         setSelectedIds(new Set());
+        notify('Itens conciliados.', 'success');
       } catch (err) {
-        alert("Erro ao conciliar itens");
+        notify("Erro ao conciliar itens", 'error');
       }
     } else if (action === 'DESCONCILIAR') {
       try {
@@ -122,18 +129,22 @@ const PixManagement: React.FC<PixManagementProps> = ({ isAdmin = false }) => {
         }
         await fetchEntries();
         setSelectedIds(new Set());
+        notify('Itens desconciliados.', 'success');
       } catch (err) {
-        alert("Erro ao desconciliar itens");
+        notify("Erro ao desconciliar itens", 'error');
       }
     } else if (action === 'EXCLUIR') {
+      const ok = await confirm({ title: 'Excluir selecionados', message: `Excluir ${selectedIds.size} lançamento(s) de Pix?`, confirmText: 'Excluir', danger: true });
+      if (!ok) return;
       try {
         for (const id of selectedIds) {
           await deletePix(parseInt(id));
         }
         await fetchEntries();
         setSelectedIds(new Set());
+        notify('Itens excluídos.', 'success');
       } catch (err) {
-        alert("Erro ao excluir itens");
+        notify("Erro ao excluir itens", 'error');
       }
     }
   };

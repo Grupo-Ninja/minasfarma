@@ -10,6 +10,7 @@ import { ClosingData, PaymentMethod, Movement } from '../types';
 import { getClosings, getClosing, uploadClosingPDFs, createClosingFromPDFs, approveClosing, rejectClosing, unapproveClosing, deleteClosing, getMe } from '../api';
 import Pagination from './Pagination';
 import { useDebounce } from '../useDebounce';
+import { useFeedback } from './Feedback';
 
 type ViewState = 'LIST' | 'UPLOAD' | 'CONFERENCE' | 'DETAIL';
 
@@ -18,6 +19,7 @@ interface ConferenceProps {
 }
 
 const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
+  const { confirm, notify } = useFeedback();
   const [view, setView] = useState<ViewState>('LIST');
   const [data, setData] = useState<ClosingData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -129,9 +131,10 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
     }
   };
 
-  const handleBackToList = () => {
-    if (view === 'CONFERENCE' && !window.confirm("Deseja sair? Dados não salvos serão perdidos.")) {
-      return;
+  const handleBackToList = async () => {
+    if (view === 'CONFERENCE') {
+      const ok = await confirm({ title: 'Sair sem salvar', message: 'Deseja sair? Dados não salvos serão perdidos.', confirmText: 'Sair', danger: true });
+      if (!ok) return;
     }
     setView('LIST');
     setData(null);
@@ -156,13 +159,13 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
 
       const result = await createClosingFromPDFs(payload);
       if (result.success) {
-        alert('Fechamento enviado para aprovação do gerente!');
+        notify('Fechamento enviado para aprovação do gerente!', 'success');
         setView('LIST');
         setData(null);
         resetUpload();
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Erro ao salvar fechamento');
+      notify(err.response?.data?.detail || 'Erro ao salvar fechamento', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -170,7 +173,8 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
 
   // Aprovar fechamento (admin)
   const handleApprove = async (id: number) => {
-    if (!window.confirm('Deseja aprovar este fechamento?')) return;
+    const ok = await confirm({ title: 'Aprovar fechamento', message: 'Deseja aprovar este fechamento?', confirmText: 'Aprovar' });
+    if (!ok) return;
     try {
       // Enviar conferências editadas (se o admin alterou algum valor oficial)
       const conferenciasEditadas = data?.conferencia?.map(c => ({
@@ -181,13 +185,13 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
       }));
 
       await approveClosing(id, { conferencias: conferenciasEditadas });
-      alert('Fechamento aprovado com sucesso!');
+      notify('Fechamento aprovado com sucesso!', 'success');
       fetchHistory();
       setView('LIST');
       setSelectedClosing(null);
       setData(null);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Erro ao aprovar');
+      notify(err.response?.data?.detail || 'Erro ao aprovar', 'error');
     }
   };
 
@@ -200,34 +204,36 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
     if (!motivo) return;
     try {
       await rejectClosing(id, motivo);
-      alert('Fechamento rejeitado.');
+      notify('Fechamento rejeitado.', 'success');
       fetchHistory();
       setView('LIST');
       setSelectedClosing(null);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Erro ao rejeitar');
+      notify(err.response?.data?.detail || 'Erro ao rejeitar', 'error');
     }
   };
 
   const handleUnapprove = async (id: number) => {
-    if (!window.confirm('Tem certeza que deseja desaprovar este fechamento? Ele voltará para o status Pendente.')) return;
+    const ok = await confirm({ title: 'Desaprovar fechamento', message: 'Tem certeza que deseja desaprovar? Ele voltará para Pendente.', confirmText: 'Desaprovar', danger: true });
+    if (!ok) return;
     try {
       await unapproveClosing(id);
       fetchHistory();
-      alert('Fechamento retornado para Pendente.');
+      notify('Fechamento retornado para Pendente.', 'success');
     } catch (err: any) {
-      alert('Erro ao desaprovar fechamento');
+      notify('Erro ao desaprovar fechamento', 'error');
     }
   };
 
   const handleDeleteClosing = async (id: number) => {
-    if (!window.confirm('ATENÇÃO: Isso excluirá permanentemente o fechamento e todas as sangrias associadas. Continuar?')) return;
+    const ok = await confirm({ title: 'Excluir fechamento', message: 'Isso excluirá permanentemente o fechamento e todas as sangrias associadas. Continuar?', confirmText: 'Excluir', danger: true });
+    if (!ok) return;
     try {
       await deleteClosing(id);
       fetchHistory();
-      alert('Fechamento excluído com sucesso.');
+      notify('Fechamento excluído com sucesso.', 'success');
     } catch (err: any) {
-      alert('Erro ao excluir fechamento');
+      notify('Erro ao excluir fechamento', 'error');
     }
   };
 
@@ -266,7 +272,7 @@ const Conference: React.FC<ConferenceProps> = ({ isAdmin: propIsAdmin }) => {
       setData(closingData);
     } catch (err) {
       console.error('Erro ao carregar detalhes do fechamento', err);
-      alert('Erro ao carregar detalhes do fechamento.');
+      notify('Erro ao carregar detalhes do fechamento.', 'error');
       setView('LIST');
     } finally {
       setIsLoading(false);

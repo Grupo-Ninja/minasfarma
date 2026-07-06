@@ -2,6 +2,7 @@
 import React from 'react';
 import { LayoutDashboard, FileCheck, DollarSign, LogOut, Users, User, Wallet, X, CalendarClock, CalendarCog } from 'lucide-react';
 import { AppRoute } from '../types';
+import { useFeedback } from './Feedback';
 
 interface SidebarProps {
     currentRoute: AppRoute;
@@ -34,10 +35,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, isAdmin, us
     md:translate-x-0 md:static md:h-screen flex flex-col
   `;
 
-    const handleLogoutClick = () => {
-        if (window.confirm('Tem certeza que deseja sair do sistema?')) {
-            onLogout();
-        }
+    const { confirm } = useFeedback();
+
+    const handleLogoutClick = async () => {
+        const ok = await confirm({
+            title: 'Sair do sistema',
+            message: 'Tem certeza que deseja encerrar a sessão?',
+            confirmText: 'Sair',
+            danger: true,
+        });
+        if (ok) onLogout();
     };
 
     return (

@@ -64,11 +64,18 @@ def update_user_password(db: Session, user_id: int, nova_senha: str):
     return db_user
 
 def delete_user(db: Session, user_id: int):
-    """Deleta um usuário (ou desativa, dependendo da regra de negócio)"""
+    """Remove o usuário da equipe (soft delete) e EXCLUI a escala dele."""
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         return None
-    
+
+    # Ao remover o funcionário da equipe, a escala dele também é excluída
+    # (schedule_days são removidos em cascata).
+    sched = db.query(models.EmployeeSchedule).filter(
+        models.EmployeeSchedule.user_id == user_id).first()
+    if sched:
+        db.delete(sched)
+
     # Soft delete - apenas desativa o usuário
     db_user.active = False
     db.commit()
