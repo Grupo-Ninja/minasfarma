@@ -1,0 +1,85 @@
+name: CI/CD
+
+# Dispara no push da main (deploy automático, após validação) e manualmente.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Evita dois deploys ao mesmo tempo (cancela o anterior em andamento).
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+jobs:
+  # 1) Validação: garante que frontend e backend compilam ANTES de publicar.
+  ci:
+    name: Validação (build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build do frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Checagem de sintaxe do backend
+        working-directory: backend
+        run: python -m compileall -q .
+
+  # 2) Deploy: só roda se a validação passou. Conecta via SSH e sobe o stack.
+  deploy:
+    name: Deploy em produção
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar se os secrets estão configurados
+        id: check
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secrets de SSH ausentes — deploy pulado. Configure SSH_HOST/USER/PORT/KEY/APP_DIR e rode novamente."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.check.outputs.configured == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script_stop: true
+          script: |
+            set -e
+            APP_DIR="${{ secrets.APP_DIR }}"
+            cd "$APP_DIR"
+            git config --global --add safe.directory "$APP_DIR"
+            echo "==> Atualizando código (main)"
+            git fetch origin main
+            git reset --hard origin/main
+            echo "==> Build + up (docker-compose.yml)"
+            docker compose -f docker-compose.yml up -d --build
+            echo "==> Limpando imagens antigas"
+            docker image prune -f
+            echo "==> Healthcheck backend"
+            sleep 8
+            curl -fsS http://127.0.0.1:8321/health && echo " OK"
