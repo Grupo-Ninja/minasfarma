@@ -35,11 +35,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         {/* Header / Logo Area */}
         <div className="bg-[#0f2947] p-8 text-center border-b border-[#D4C4A8]/20 relative">
-          <div className="w-24 h-24 mx-auto mb-4 rounded-full overflow-hidden border-4 border-[#D4C4A8] shadow-lg">
+          <div className="mx-auto mb-4 flex min-h-[90px] w-full max-w-[220px] items-center justify-center">
             <img
               src={LOGO_DATA_URI}
-              alt="Minas Farma Logo"
-              className="w-full h-full object-cover"
+              alt="Minas Farma Canaã"
+              className="block h-auto max-h-[100px] w-full object-contain object-center"
             />
           </div>
           <h1 className="text-2xl font-bold text-[#D4C4A8]">Minas Farma</h1>

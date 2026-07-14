@@ -24,7 +24,10 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String, nullable=False)
-    login = Column(String, unique=True, index=True, nullable=False)
+    # A unicidade Ã© aplicada por migraÃ§Ã£o apenas aos usuÃ¡rios ativos.
+    # Assim, registros desativados podem permanecer no histÃ³rico sem bloquear
+    # o recadastro do mesmo login.
+    login = Column(String, index=True, nullable=False)
     senha = Column(String, nullable=False)
     cargo = Column(String, default=UserRole.OPERADOR)
     active = Column(Boolean, default=True)
