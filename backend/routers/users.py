@@ -52,6 +52,20 @@ def create_user(
     """Cria um novo usuário (apenas admin)"""
     db_user = crud.get_user_by_login(db, login=user.login)
     if db_user:
+        # A exclusao e logica; reative o registro para permitir recadastro
+        # sem perder o historico e sem violar a unicidade do login.
+        if not db_user.active:
+            return crud.update_user(
+                db=db,
+                user_id=db_user.id,
+                user_update=schemas.UserUpdate(
+                    login=user.login,
+                    nome=user.nome,
+                    cargo=user.cargo,
+                    senha=user.senha,
+                    active=True,
+                ),
+            )
         raise HTTPException(status_code=400, detail="Login já está em uso")
     return crud.create_user(db=db, user=user)
 
