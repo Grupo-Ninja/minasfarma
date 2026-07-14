@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Lock, ArrowRight } from 'lucide-react';
 import { login } from '../api';
+import { LOGO_DATA_URI } from '../logoData';
 
 interface LoginProps {
   onLogin: () => void;
@@ -36,7 +37,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="bg-[#0f2947] p-8 text-center border-b border-[#D4C4A8]/20 relative">
           <div className="w-24 h-24 mx-auto mb-4 rounded-full overflow-hidden border-4 border-[#D4C4A8] shadow-lg">
             <img
-              src="https://instagram.fbfh15-1.fna.fbcdn.net/v/t51.2885-19/449031776_444993341719433_772636051678077359_n.jpg?stp=dst-jpg_s150x150_tt6&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLmRqYW5nby40NTEuYzIifQ&_nc_ht=instagram.fbfh15-1.fna.fbcdn.net&_nc_cat=105&_nc_oc=Q6cZ2QGQjiEaWoOkVQgBLaCf-LuKGQYCeSGLFt1Zr_rEWksUzh9g6TU2uIWq3s6Sws6k9o0rOGo91IvLiSPc0cWQ7Ps8&_nc_ohc=zLBU_c0bWD0Q7kNvwHwQzjw&_nc_gid=dJfhDSdihA8hujbqn3EkZA&edm=AP4sbd4BAAAA&ccb=7-5&oh=00_AfnObzyV6auMvuKlnegSO87dYq72-0sWxb6qiH8tNo9wdQ&oe=693FD43D&_nc_sid=7a9f4b"
+              src={LOGO_DATA_URI}
               alt="Minas Farma Logo"
               className="w-full h-full object-cover"
             />
